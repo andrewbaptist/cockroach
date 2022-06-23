@@ -866,10 +866,6 @@ func (r *Replica) AdminTransferLease(
 
 		now := r.store.Clock().NowAsClockTimestamp()
 		status := r.leaseStatusAtRLocked(ctx, now)
-		if status.Lease.OwnedBy(target) {
-			// The target is already the lease holder. Nothing to do.
-			return nil, nil, nil
-		}
 		desc := r.mu.state.Desc
 		if !status.Lease.OwnedBy(r.store.StoreID()) {
 			return nil, nil, roachpb.NewNotLeaseHolderError(status.Lease, r.store.StoreID(), desc,
