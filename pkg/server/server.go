@@ -13,6 +13,7 @@ package server
 import (
 	"context"
 	"fmt"
+	"github.com/cockroachdb/cockroach/pkg/kv/s3server"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -426,6 +427,8 @@ func NewServer(cfg Config, stopper *stop.Stopper) (*Server, error) {
 			nlRenewal = duration
 		}
 	}
+
+	s3server.NewS3Server(stopper, cfg.Settings, db)
 
 	rangeFeedKnobs, _ := cfg.TestingKnobs.RangeFeed.(*rangefeed.TestingKnobs)
 	rangeFeedFactory, err := rangefeed.NewFactory(stopper, db, st, rangeFeedKnobs)
