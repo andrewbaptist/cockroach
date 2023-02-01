@@ -1212,7 +1212,19 @@ or the delegate being too busy to send.
 		Measurement: "Snapshots",
 		Unit:        metric.Unit_COUNT,
 	}
+	metaRangeSnapshotSendLatency = metric.Metadata{
+		Name: "range.snapshot.send.latency",
+		Help: `Latency histogram for sending a snapshot from the coordinators perspective.
 
+This metric measures the time between deciding a snapshot needs to be sent until
+it is fully processed and accepted by the end recipient. It includes any
+queueing and retries along the way.  Note that this snapshot is intentionally
+not normalized by snapshot size since frequently the majority of the time spent waiting
+is on queues and they are independent of size.
+`,
+		Measurement: "Latency",
+		Unit:        metric.Unit_NANOSECONDS,
+	}
 	// Quota pool metrics.
 	metaRaftQuotaPoolPercentUsed = metric.Metadata{
 		Name:        "raft.quota_pool.percent_used",
@@ -2506,6 +2518,7 @@ type StoreMetrics struct {
 	RangeSnapShotCrossRegionRcvdBytes            *metric.Counter
 	RangeSnapShotCrossZoneSentBytes              *metric.Counter
 	RangeSnapShotCrossZoneRcvdBytes              *metric.Counter
+	RangeSnapshotSendLatency                     metric.IHistogram
 
 	// Range snapshot queue metrics.
 	RangeSnapshotSendQueueLength     *metric.Gauge
@@ -3196,6 +3209,13 @@ func newStoreMetrics(histogramWindow time.Duration) *StoreMetrics {
 		DelegateSnapshotSuccesses:                    metric.NewCounter(metaDelegateSnapshotSuccesses),
 		DelegateSnapshotFailures:                     metric.NewCounter(metaDelegateSnapshotFailures),
 		DelegateSnapshotInProgress:                   metric.NewGauge(metaDelegateSnapshotInProgress),
+		RangeSnapshotSendLatency: metric.NewHistogram(metric.HistogramOptions{
+			Mode:     metric.HistogramModePreferHdrLatency,
+			Metadata: metaRangeSnapshotSendLatency,
+			Duration: histogramWindow,
+			Buckets:  metric.LongRunning60mLatencyBuckets,
+		}),
+
 
 		// Raft processing metrics.
 		RaftTicks:                  metric.NewCounter(metaRaftTicks),

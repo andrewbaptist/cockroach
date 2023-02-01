@@ -2799,6 +2799,8 @@ func (r *Replica) sendSnapshotUsingDelegate(
 	senderQueuePriority float64,
 ) (retErr error) {
 
+	startTime := timeutil.Now()
+
 	defer func() {
 		// Report the snapshot status to Raft, which expects us to do this once we
 		// finish sending the snapshot.
@@ -2915,6 +2917,7 @@ func (r *Replica) sendSnapshotUsingDelegate(
 
 		// Return once we have success.
 		if retErr == nil {
+			r.store.Metrics().RangeSnapshotSendLatency.RecordValue(timeutil.Since(startTime).Nanoseconds())
 			if !selfDelegate {
 				r.store.Metrics().DelegateSnapshotSuccesses.Inc(1)
 			}
