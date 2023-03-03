@@ -64,7 +64,7 @@ func (r *Replica) shouldGossip(ctx context.Context) bool {
 	return r.OwnsValidLease(ctx, r.store.Clock().NowAsClockTimestamp())
 }
 
-// MaybeGossipNodeLivenessRaftMuLocked gossips information for all node liveness
+// MaybeGossipNodeLiveness gossips information for all node liveness
 // records stored on this range. To scan and gossip, this replica must hold the
 // lease to a range which contains some or all of the node liveness records.
 // After scanning the records, it checks against what's already in gossip and
@@ -73,10 +73,9 @@ func (r *Replica) shouldGossip(ctx context.Context) bool {
 // MaybeGossipNodeLivenessRaftMuLocked must only be called from Raft commands
 // while holding the raftMu (which provide the necessary serialization to avoid
 // data races).
-func (r *Replica) MaybeGossipNodeLivenessRaftMuLocked(
+func (r *Replica) MaybeGossipNodeLiveness(
 	ctx context.Context, span roachpb.Span,
 ) error {
-	r.raftMu.AssertHeld()
 	if r.store.Gossip() == nil || !r.IsInitialized() {
 		return nil
 	}

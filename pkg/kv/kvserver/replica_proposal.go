@@ -441,14 +441,11 @@ func (r *Replica) leasePostApplyLocked(
 		// NB: run these in an async task to keep them out of the critical section
 		// (r.mu is held here).
 		_ = r.store.stopper.RunAsyncTask(r.AnnotateCtx(context.Background()), "lease-triggers", func(ctx context.Context) {
-			// Re-acquire the raftMu, as we are now in an async task.
-			r.raftMu.Lock()
-			defer r.raftMu.Unlock()
 			if _, err := r.IsDestroyed(); err != nil {
 				// Nothing to do.
 				return
 			}
-			if err := r.MaybeGossipNodeLivenessRaftMuLocked(ctx, keys.NodeLivenessSpan); err != nil {
+			if err := r.MaybeGossipNodeLiveness(ctx, keys.NodeLivenessSpan); err != nil {
 				log.Errorf(ctx, "%v", err)
 			}
 		})
@@ -663,7 +660,7 @@ func (r *Replica) handleReadWriteLocalEvalResult(ctx context.Context, lResult re
 	}
 
 	if lResult.MaybeGossipNodeLiveness != nil {
-		if err := r.MaybeGossipNodeLivenessRaftMuLocked(ctx, *lResult.MaybeGossipNodeLiveness); err != nil {
+		if err := r.MaybeGossipNodeLiveness(ctx, *lResult.MaybeGossipNodeLiveness); err != nil {
 			log.Errorf(ctx, "%v", err)
 		}
 		lResult.MaybeGossipNodeLiveness = nil
