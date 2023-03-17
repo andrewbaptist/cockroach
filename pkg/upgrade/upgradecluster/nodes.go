@@ -12,6 +12,7 @@ package upgradecluster
 
 import (
 	"context"
+	"github.com/cockroachdb/cockroach/pkg/kv/kvserver/liveness/livenesspb"
 
 	"github.com/cockroachdb/cockroach/pkg/roachpb"
 	"github.com/cockroachdb/errors"
@@ -21,8 +22,8 @@ import (
 // Node captures the relevant bits of each node as it pertains to the upgrade
 // infrastructure.
 type Node struct {
-	ID    roachpb.NodeID
-	Epoch int64
+	ID         roachpb.NodeID
+	Membership livenesspb.MembershipStatus
 }
 
 // Nodes is a collection of node objects.
@@ -41,22 +42,16 @@ type Nodes []Node
 // EveryNode.
 func NodesFromNodeLiveness(ctx context.Context, nl NodeLiveness) (Nodes, error) {
 	var ns []Node
-	ls, err := nl.GetLivenessesFromKV(ctx)
-	if err != nil {
-		return nil, err
-	}
-	for _, l := range ls {
+	ls := nl.GetMembershipMap()
+	for nodeID, l := range ls {
 		if l.Membership.Decommissioned() {
 			continue
 		}
-		live, err := nl.IsLive(l.NodeID)
-		if err != nil {
-			return nil, err
-		}
+		live := nl.IsLive(nodeID)
 		if !live {
-			return nil, errors.Newf("n%d required, but unavailable", l.NodeID)
+			return nil, errors.Newf("n%d required, but unavailable", nodeID)
 		}
-		ns = append(ns, Node{ID: l.NodeID, Epoch: l.Epoch})
+		ns = append(ns, Node{ID: nodeID, Membership: l.Membership})
 	}
 	return ns, nil
 }
@@ -68,27 +63,27 @@ func (ns Nodes) Identical(other Nodes) (ok bool, _ []redact.RedactableString) {
 	a, b := ns, other
 
 	type ent struct {
-		node         Node
-		count        int
-		epochChanged bool
+		node    Node
+		count   int
+		changed bool
 	}
 	m := map[roachpb.NodeID]ent{}
 	for _, node := range a {
-		m[node.ID] = ent{count: 1, node: node, epochChanged: false}
+		m[node.ID] = ent{count: 1, node: node, changed: false}
 	}
 	for _, node := range b {
 		e, ok := m[node.ID]
 		e.count--
-		if ok && e.node.Epoch != node.Epoch {
-			e.epochChanged = true
+		if ok && e.node.Membership != node.Membership {
+			e.changed = true
 		}
 		m[node.ID] = e
 	}
 
 	var diffs []redact.RedactableString
 	for id, e := range m {
-		if e.epochChanged {
-			diffs = append(diffs, redact.Sprintf("n%d's Epoch changed", id))
+		if e.changed {
+			diffs = append(diffs, redact.Sprintf("n%d's changed", id))
 		}
 		if e.count > 0 {
 			diffs = append(diffs, redact.Sprintf("n%d was decommissioned", id))

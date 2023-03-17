@@ -470,6 +470,7 @@ func (s Server) NodeStatus(
 func (s Server) Verify(
 	ctx context.Context,
 	req *serverpb.RecoveryVerifyRequest,
+	membership livenesspb.LivenessMembership,
 	liveNodes livenesspb.IsLiveMap,
 	db *kv.DB,
 ) (*serverpb.RecoveryVerifyResponse, error) {
@@ -502,7 +503,7 @@ func (s Server) Verify(
 	decomNodes := make(map[roachpb.NodeID]interface{})
 	for _, plannedID := range req.DecommissionedNodeIDs {
 		decomNodes[plannedID] = struct{}{}
-		if ns, ok := liveNodes[plannedID]; ok {
+		if ns, ok := membership[plannedID]; ok {
 			decomStatus[plannedID] = ns.Membership
 		}
 	}
@@ -513,8 +514,7 @@ func (s Server) Verify(
 		if _, removed := decomNodes[rd.NodeID]; removed {
 			return false
 		}
-		l, ok := liveNodes[rd.NodeID]
-		return ok && l.IsLive
+		return liveNodes[rd.NodeID]
 	}
 
 	getRangeInfo := func(

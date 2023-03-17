@@ -181,7 +181,7 @@ func replicaIsSuspect(repl *Replica) bool {
 	// conditions, but if it fails it will be GCed within 12 hours anyway.
 	case raft.StateFollower:
 		leadDesc, ok := repl.Desc().GetReplicaDescriptorByID(roachpb.ReplicaID(raftStatus.Lead))
-		if !ok || !livenessMap[leadDesc.NodeID].IsLive {
+		if !ok || !livenessMap[leadDesc.NodeID] {
 			return true
 		}
 
@@ -190,7 +190,7 @@ func replicaIsSuspect(repl *Replica) bool {
 	// which must cause the stale leader to relinquish its lease and GC itself.
 	case raft.StateLeader:
 		if !repl.Desc().Replicas().CanMakeProgress(func(d roachpb.ReplicaDescriptor) bool {
-			return livenessMap[d.NodeID].IsLive
+			return livenessMap[d.NodeID]
 		}) {
 			return true
 		}

@@ -134,12 +134,14 @@ func ValidateTransition(old, new Liveness) error {
 	return nil
 }
 
-// IsLiveMapEntry encapsulates data about current liveness for a
-// node.
-type IsLiveMapEntry struct {
-	Liveness
-	IsLive bool
+type LivenessMembershipEntry struct {
+	Draining   bool
+	Membership MembershipStatus
 }
 
 // IsLiveMap is a type alias for a map from NodeID to IsLiveMapEntry.
-type IsLiveMap map[roachpb.NodeID]IsLiveMapEntry
+type IsLiveMap map[roachpb.NodeID]bool
+
+type IsLiveDetails map[roachpb.NodeID]Liveness
+
+type LivenessMembership map[roachpb.NodeID]LivenessMembershipEntry

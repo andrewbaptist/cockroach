@@ -879,15 +879,12 @@ func newSQLServer(ctx context.Context, cfg sqlServerArgs) (*SQLServer, error) {
 		// pass it directly instead of making a new closure here?
 		getNodes = func(ctx context.Context) ([]roachpb.NodeID, error) {
 			var ns []roachpb.NodeID
-			ls, err := nodeLiveness.GetLivenessesFromKV(ctx)
-			if err != nil {
-				return nil, err
-			}
-			for _, l := range ls {
+			ls := nodeLiveness.GetMembershipMap()
+			for nodeID, l := range ls {
 				if l.Membership.Decommissioned() {
 					continue
 				}
-				ns = append(ns, l.NodeID)
+				ns = append(ns, nodeID)
 			}
 			return ns, nil
 		}

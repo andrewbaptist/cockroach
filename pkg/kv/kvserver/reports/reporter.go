@@ -210,7 +210,7 @@ func (stats *Reporter) update(
 
 	isLiveMap := stats.liveness.GetIsLiveMap()
 	isNodeLive := func(nodeID roachpb.NodeID) bool {
-		return isLiveMap[nodeID].IsLive
+		return isLiveMap[nodeID]
 	}
 
 	nodeLocalities := make(map[roachpb.NodeID]roachpb.Locality, len(allStores))

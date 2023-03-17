@@ -1176,7 +1176,7 @@ func maybeFatalOnRaftReadyErr(ctx context.Context, err error) (removed bool) {
 // tick the Raft group, returning true if the raft group exists and should
 // be queued for Ready processing; false otherwise.
 func (r *Replica) tick(
-	ctx context.Context, livenessMap livenesspb.IsLiveMap, ioThresholdMap *ioThresholdMap,
+	ctx context.Context, livenessMap livenesspb.IsLiveDetails, ioThresholdMap *ioThresholdMap,
 ) (bool, error) {
 	r.unreachablesMu.Lock()
 	remotes := r.unreachablesMu.remotes
@@ -1976,9 +1976,10 @@ func shouldCampaignOnWake(
 	leaseStatus kvserverpb.LeaseStatus,
 	storeID roachpb.StoreID,
 	raftStatus raft.BasicStatus,
-	livenessMap livenesspb.IsLiveMap,
+	livenessMap livenesspb.IsLiveDetails,
 	desc *roachpb.RangeDescriptor,
 	requiresExpiringLease bool,
+	now hlc.Timestamp,
 ) bool {
 	// When waking up a range, campaign unless we know that another
 	// node holds a valid lease (this is most important after a split,
@@ -2015,7 +2016,7 @@ func shouldCampaignOnWake(
 	if !ok {
 		return false
 	}
-	return !livenessEntry.IsLive
+	return !livenessEntry.IsLive(now.GoTime())
 }
 
 // maybeCampaignOnWakeLocked is called when the range wakes from a
@@ -2035,8 +2036,8 @@ func (r *Replica) maybeCampaignOnWakeLocked(ctx context.Context) {
 
 	leaseStatus := r.leaseStatusAtRLocked(ctx, r.store.Clock().NowAsClockTimestamp())
 	raftStatus := r.mu.internalRaftGroup.BasicStatus()
-	livenessMap, _ := r.store.livenessMap.Load().(livenesspb.IsLiveMap)
-	if shouldCampaignOnWake(leaseStatus, r.store.StoreID(), raftStatus, livenessMap, r.descRLocked(), r.requiresExpiringLeaseRLocked()) {
+	livenessMap, _ := r.store.livenessMap.Load().(livenesspb.IsLiveDetails)
+	if shouldCampaignOnWake(leaseStatus, r.store.StoreID(), raftStatus, livenessMap, r.descRLocked(), r.requiresExpiringLeaseRLocked(), r.store.Clock().Now()) {
 		r.campaignLocked(ctx)
 	}
 }
@@ -2059,7 +2060,7 @@ func (r *Replica) maybeCampaignOnWakeLocked(ctx context.Context) {
 // become leader and can proceed with a future attempt to acquire the lease.
 func shouldCampaignOnLeaseRequestRedirect(
 	raftStatus raft.BasicStatus,
-	livenessMap livenesspb.IsLiveMap,
+	livenessMap livenesspb.IsLiveDetails,
 	desc *roachpb.RangeDescriptor,
 	requiresExpiringLease bool,
 	now hlc.Timestamp,
@@ -2107,7 +2108,7 @@ func shouldCampaignOnLeaseRequestRedirect(
 	// Store.updateLivenessMap). We only care whether the leader is currently live
 	// according to node liveness because this determines whether it will be able
 	// to acquire an epoch-based lease.
-	return !livenessEntry.Liveness.IsLive(now.GoTime())
+	return !livenessEntry.IsLive(now.GoTime())
 }
 
 func (r *Replica) campaignLocked(ctx context.Context) {

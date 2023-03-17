@@ -4515,21 +4515,17 @@ CREATE TABLE crdb_internal.kv_node_liveness (
 			return err
 		}
 
-		livenesses, err := nl.GetLivenessesFromKV(ctx)
+		livenesses := nl.GetMembershipMap()
 		if err != nil {
 			return err
 		}
 
-		sort.Slice(livenesses, func(i, j int) bool {
-			return livenesses[i].NodeID < livenesses[j].NodeID
-		})
-
-		for i := range livenesses {
-			l := &livenesses[i]
+		// TODO: Sort
+		for nodeID, l := range livenesses {
 			if err := addRow(
-				tree.NewDInt(tree.DInt(l.NodeID)),
-				tree.NewDInt(tree.DInt(l.Epoch)),
-				tree.NewDString(l.Expiration.String()),
+				tree.NewDInt(tree.DInt(nodeID)),
+				tree.NewDInt(tree.DInt(0)),
+				tree.NewDString("Not available"),
 				tree.MakeDBool(tree.DBool(l.Draining)),
 				tree.NewDString(l.Membership.String()),
 			); err != nil {

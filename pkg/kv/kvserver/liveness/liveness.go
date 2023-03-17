@@ -661,27 +661,19 @@ func (nl *NodeLiveness) setMembershipStatusInternal(
 }
 
 // GetLivenessThreshold returns the maximum duration between heartbeats
-// before a node is considered not-live.
+// before a node is considered not-live. Only used in tests.
 func (nl *NodeLiveness) GetLivenessThreshold() time.Duration {
 	return nl.livenessThreshold
 }
 
-// IsLive returns whether or not the specified node is considered live based on
-// whether or not its liveness has expired regardless of the liveness status. It
-// is an error if the specified node is not in the local liveness table.
-func (nl *NodeLiveness) IsLive(nodeID roachpb.NodeID) (bool, error) {
+// IsLive returns whether the specified node is considered live based on
+// whether its liveness has expired regardless of the liveness status.
+func (nl *NodeLiveness) IsLive(nodeID roachpb.NodeID) bool {
 	liveness, ok := nl.GetLiveness(nodeID)
 	if !ok {
-		// TODO(irfansharif): We only expect callers to supply us with node IDs
-		// they learnt through existing liveness records, which implies we
-		// should never find ourselves here. We should clean up this conditional
-		// once we re-visit the caching structure used within NodeLiveness;
-		// we should be able to return ErrMissingRecord instead.
-		return false, ErrRecordCacheMiss
+		return false
 	}
-	// NB: We use clock.Now().GoTime() instead of clock.PhysicalTime() in order to
-	// consider clock signals from other nodes.
-	return liveness.IsLive(nl.clock.Now().GoTime()), nil
+	return liveness.IsLive(nl.clock.Now().GoTime())
 }
 
 // IsAvailable returns whether or not the specified node is available to serve
@@ -1030,6 +1022,16 @@ func (nl *NodeLiveness) SelfEx() (_ Record, ok bool) {
 	return nl.getLivenessLocked(nl.gossip.NodeID.Get())
 }
 
+func (nl *NodeLiveness) GetMembershipMap() livenesspb.LivenessMembership {
+	membership := livenesspb.LivenessMembership{}
+	nl.mu.RLock()
+	defer nl.mu.RUnlock()
+	for nID, l := range nl.mu.nodes {
+		membership[nID] = livenesspb.LivenessMembershipEntry{Membership: l.Membership, Draining: l.Draining}
+	}
+	return membership
+}
+
 // GetIsLiveMap returns a map of nodeID to boolean liveness status of
 // each node. This excludes nodes that were removed completely (dead +
 // decommissioning).
@@ -1044,32 +1046,30 @@ func (nl *NodeLiveness) GetIsLiveMap() livenesspb.IsLiveMap {
 			// This is a node that was completely removed. Skip over it.
 			continue
 		}
-		lMap[nID] = livenesspb.IsLiveMapEntry{
-			Liveness: l.Liveness,
-			IsLive:   isLive,
-		}
+		lMap[nID] = isLive
 	}
 	return lMap
 }
 
-// GetLivenesses returns a slice containing the liveness status of
-// every node on the cluster known to gossip. Callers should consider
-// calling (statusServer).NodesWithLiveness() instead where possible.
-func (nl *NodeLiveness) GetLivenesses() []livenesspb.Liveness {
+func (nl *NodeLiveness) GetIsLiveDetails() livenesspb.IsLiveDetails {
+	lMap := livenesspb.IsLiveDetails{}
 	nl.mu.RLock()
 	defer nl.mu.RUnlock()
-	livenesses := make([]livenesspb.Liveness, 0, len(nl.mu.nodes))
-	for _, l := range nl.mu.nodes {
-		livenesses = append(livenesses, l.Liveness)
+	for nID, l := range nl.mu.nodes {
+		if !l.Membership.Active() {
+			// This is a node that was completely removed. Skip over it.
+			continue
+		}
+		lMap[nID] = l.Liveness
 	}
-	return livenesses
+	return lMap
 }
 
-// GetLivenessesFromKV returns a slice containing the liveness record of all
+// getLivenesses returns a slice containing the liveness record of all
 // nodes that have ever been a part of the cluster. The records are read from
 // the KV layer in a KV transaction. This is in contrast to GetLivenesses above,
 // which consults a (possibly stale) in-memory cache.
-func (nl *NodeLiveness) GetLivenessesFromKV(ctx context.Context) ([]livenesspb.Liveness, error) {
+func (nl *NodeLiveness) getLivenessesFromKV(ctx context.Context) ([]livenesspb.Liveness, error) {
 	kvs, err := nl.db.Scan(ctx, keys.NodeLivenessPrefix, keys.NodeLivenessKeyMax, 0)
 	if err != nil {
 		return nil, errors.Wrap(err, "unable to get liveness")

@@ -180,7 +180,7 @@ func (r *Replica) canUnquiesceRLocked() bool {
 // elections which will cause throughput hiccups to the range, but not
 // correctness issues.
 func (r *Replica) maybeQuiesceRaftMuLockedReplicaMuLocked(
-	ctx context.Context, now hlc.ClockTimestamp, livenessMap livenesspb.IsLiveMap,
+	ctx context.Context, now hlc.ClockTimestamp, livenessMap livenesspb.IsLiveDetails,
 ) bool {
 	status, lagging, ok := shouldReplicaQuiesce(ctx, r, now, livenessMap, r.mu.pausedFollowers)
 	if !ok {
@@ -226,10 +226,10 @@ func (s laggingReplicaSet) MemberStale(l livenesspb.Liveness) bool {
 
 // AnyMemberStale returns whether any liveness information in the set is older
 // than liveness information contained in the IsLiveMap.
-func (s laggingReplicaSet) AnyMemberStale(livenessMap livenesspb.IsLiveMap) bool {
+func (s laggingReplicaSet) AnyMemberStale(livenessMap livenesspb.IsLiveDetails) bool {
 	for _, laggingL := range s {
 		if l, ok := livenessMap[laggingL.NodeID]; ok {
-			if laggingL.Compare(l.Liveness) < 0 {
+			if laggingL.Compare(l) < 0 {
 				return true
 			}
 		}
@@ -272,7 +272,7 @@ func shouldReplicaQuiesce(
 	ctx context.Context,
 	q quiescer,
 	now hlc.ClockTimestamp,
-	livenessMap livenesspb.IsLiveMap,
+	livenessMap livenesspb.IsLiveDetails,
 	pausedFollowers map[roachpb.ReplicaID]struct{},
 ) (*raftSparseStatus, laggingReplicaSet, bool) {
 	if testingDisableQuiescence {
@@ -416,12 +416,12 @@ func shouldReplicaQuiesce(
 		} else if progress.Match != status.Applied {
 			// Skip any node in the descriptor which is not live. Instead, add
 			// the node to the set of replicas lagging the quiescence index.
-			if l, ok := livenessMap[rep.NodeID]; ok && !l.IsLive {
+			if l, ok := livenessMap[rep.NodeID]; ok && !l.IsLive(now.ToTimestamp().GoTime()) {
 				if log.V(4) {
 					log.Infof(ctx, "skipping node %d because not live. Progress=%+v",
 						rep.NodeID, progress)
 				}
-				lagging = append(lagging, l.Liveness)
+				lagging = append(lagging, l)
 				continue
 			}
 			if log.V(4) {
@@ -507,7 +507,7 @@ func shouldFollowerQuiesceOnNotify(
 	q quiescer,
 	msg raftpb.Message,
 	lagging laggingReplicaSet,
-	livenessMap livenesspb.IsLiveMap,
+	livenessMap livenesspb.IsLiveDetails,
 ) bool {
 	// If another replica tells us to quiesce, we verify that according to
 	// it, we are fully caught up, and that we believe it to be the leader.
@@ -590,7 +590,7 @@ func (r *Replica) maybeQuiesceOnNotify(
 	// NOTE: it is important that we grab the livenessMap under lock so
 	// that we properly synchronize with Store.nodeIsLiveCallback, which
 	// updates the map and then tries to unquiesce.
-	livenessMap, _ := r.store.livenessMap.Load().(livenesspb.IsLiveMap)
+	livenessMap, _ := r.store.livenessMap.Load().(livenesspb.IsLiveDetails)
 	if !shouldFollowerQuiesceOnNotify(ctx, r, msg, lagging, livenessMap) {
 		return false
 	}

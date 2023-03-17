@@ -9054,7 +9054,7 @@ func TestReplicaMetrics(t *testing.T) {
 	live := func(ids ...roachpb.NodeID) livenesspb.IsLiveMap {
 		m := livenesspb.IsLiveMap{}
 		for _, id := range ids {
-			m[id] = livenesspb.IsLiveMapEntry{IsLive: true}
+			m[id] = true
 		}
 		return m
 	}
@@ -9909,7 +9909,7 @@ type testQuiescer struct {
 	isDestroyed     bool
 
 	// Not used to implement quiescer, but used by tests.
-	livenessMap livenesspb.IsLiveMap
+	livenessMap livenesspb.IsLiveDetails
 	paused      map[roachpb.ReplicaID]struct{}
 }
 
@@ -10016,7 +10016,7 @@ func TestShouldReplicaQuiesce(t *testing.T) {
 						},
 					},
 				},
-				livenessMap: livenesspb.IsLiveMap{
+				livenessMap: livenesspb.IsLiveDetails{
 					1: {IsLive: true},
 					2: {IsLive: true},
 					3: {IsLive: true},

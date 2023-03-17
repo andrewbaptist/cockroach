@@ -1571,7 +1571,7 @@ func (n *Node) ResetQuorum(
 	// Check that we've actually lost quorum.
 	livenessMap := n.storeCfg.NodeLiveness.GetIsLiveMap()
 	available := desc.Replicas().CanMakeProgress(func(rDesc roachpb.ReplicaDescriptor) bool {
-		return livenessMap[rDesc.NodeID].IsLive
+		return livenessMap[rDesc.NodeID]
 	})
 	if available {
 		return nil, errors.Errorf("targeted range to recover has not lost quorum.")

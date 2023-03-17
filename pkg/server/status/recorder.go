@@ -406,7 +406,7 @@ func (mr *MetricsRecorder) getNetworkActivity(
 		}
 		for nodeID, entry := range isLiveMap {
 			na := statuspb.NodeStatus_NetworkActivity{}
-			if entry.IsLive {
+			if entry {
 				if latency, ok := currentAverages[nodeID]; ok {
 					na.Latency = latency.Nanoseconds()
 				}

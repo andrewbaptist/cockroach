@@ -55,10 +55,7 @@ func verifyLiveness(t *testing.T, tc *testcluster.TestCluster) {
 }
 func verifyLivenessServer(s *server.TestServer, numServers int64) error {
 	nl := s.NodeLiveness().(*liveness.NodeLiveness)
-	live, err := nl.IsLive(s.Gossip().NodeID.Get())
-	if err != nil {
-		return err
-	} else if !live {
+	if !nl.IsLive(s.Gossip().NodeID.Get()) {
 		return errors.Errorf("node %d not live", s.Gossip().NodeID.Get())
 	}
 	if a, e := nl.Metrics().LiveNodes.Value(), numServers; a != e {
@@ -108,10 +105,8 @@ func TestNodeLiveness(t *testing.T) {
 	for _, s := range tc.Servers {
 		nl := s.NodeLiveness().(*liveness.NodeLiveness)
 		nodeID := s.Gossip().NodeID.Get()
-		live, err := nl.IsLive(nodeID)
-		if err != nil {
-			t.Error(err)
-		} else if live {
+		live := nl.IsLive(nodeID)
+		if live {
 			t.Errorf("expected node %d to be considered not-live after advancing node clock", nodeID)
 		}
 		testutils.SucceedsSoon(t, func() error {
@@ -462,10 +457,10 @@ func TestNodeLivenessEpochIncrement(t *testing.T) {
 		if newLiveness.Expiration != oldLiveness.Expiration {
 			return errors.Errorf("expected expiration to remain unchanged")
 		}
-		if live, err := tc.Servers[0].NodeLiveness().(*liveness.NodeLiveness).IsLive(deadNodeID); live || err != nil {
+		if tc.Servers[0].NodeLiveness().(*liveness.NodeLiveness).IsLive(deadNodeID) {
 			// NB: errors.Wrapf(nil, ...) returns nil.
 			// nolint:errwrap
-			return errors.Errorf("expected dead node to remain dead after epoch increment %t: %v", live, err)
+			return errors.New("expected dead node to remain dead after epoch increment")
 		}
 		return nil
 	})
@@ -667,13 +662,10 @@ func TestNodeLivenessGetIsLiveMap(t *testing.T) {
 	pauseNodeLivenessHeartbeatLoops(tc)
 	nl := tc.Servers[0].NodeLiveness().(*liveness.NodeLiveness)
 	lMap := nl.GetIsLiveMap()
-	l1, _ := nl.GetLiveness(1)
-	l2, _ := nl.GetLiveness(2)
-	l3, _ := nl.GetLiveness(3)
 	expectedLMap := livenesspb.IsLiveMap{
-		1: {Liveness: l1.Liveness, IsLive: true},
-		2: {Liveness: l2.Liveness, IsLive: true},
-		3: {Liveness: l3.Liveness, IsLive: true},
+		1: true,
+		2: true,
+		3: true,
 	}
 	if !reflect.DeepEqual(expectedLMap, lMap) {
 		t.Errorf("expected liveness map %+v; got %+v", expectedLMap, lMap)
@@ -703,13 +695,10 @@ func TestNodeLivenessGetIsLiveMap(t *testing.T) {
 
 	// Now verify only node 0 is live.
 	lMap = nl.GetIsLiveMap()
-	l1, _ = nl.GetLiveness(1)
-	l2, _ = nl.GetLiveness(2)
-	l3, _ = nl.GetLiveness(3)
 	expectedLMap = livenesspb.IsLiveMap{
-		1: {Liveness: l1.Liveness, IsLive: true},
-		2: {Liveness: l2.Liveness, IsLive: false},
-		3: {Liveness: l3.Liveness, IsLive: false},
+		1: true,
+		2: false,
+		3: false,
 	}
 	if !reflect.DeepEqual(expectedLMap, lMap) {
 		t.Errorf("expected liveness map %+v; got %+v", expectedLMap, lMap)
@@ -741,7 +730,7 @@ func TestNodeLivenessGetLivenesses(t *testing.T) {
 	nl := tc.Servers[0].NodeLiveness().(*liveness.NodeLiveness)
 	actualLMapNodes := make(map[roachpb.NodeID]struct{})
 	originalExpiration := testStartTime + nl.GetLivenessThreshold().Nanoseconds()
-	for _, l := range nl.GetLivenesses() {
+	for _, l := range nl.GetIsLiveDetails() {
 		if a, e := l.Epoch, int64(1); a != e {
 			t.Errorf("liveness record had epoch %d, wanted %d", a, e)
 		}
@@ -772,7 +761,7 @@ func TestNodeLivenessGetLivenesses(t *testing.T) {
 
 	// Verify that node liveness receives the change.
 	actualLMapNodes = make(map[roachpb.NodeID]struct{})
-	for _, l := range nl.GetLivenesses() {
+	for _, l := range nl.GetIsLiveDetails() {
 		if a, e := l.Epoch, int64(1); a != e {
 			t.Errorf("liveness record had epoch %d, wanted %d", a, e)
 		}
@@ -1215,7 +1204,7 @@ func TestNodeLivenessNoRetryOnAmbiguousResultCausedByCancellation(t *testing.T) 
 func verifyNodeIsDecommissioning(t *testing.T, tc *testcluster.TestCluster, nodeID roachpb.NodeID) {
 	testutils.SucceedsSoon(t, func() error {
 		for _, s := range tc.Servers {
-			for _, liv := range s.NodeLiveness().(*liveness.NodeLiveness).GetLivenesses() {
+			for _, liv := range s.NodeLiveness().(*liveness.NodeLiveness).GetIsLiveDetails() {
 				if liv.NodeID != nodeID {
 					continue
 				}

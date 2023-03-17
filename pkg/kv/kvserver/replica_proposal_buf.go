@@ -1247,7 +1247,7 @@ func (rp *replicaProposer) ownsValidLease(ctx context.Context, now hlc.ClockTime
 
 func (rp *replicaProposer) shouldCampaignOnRedirect(raftGroup proposerRaft) bool {
 	r := (*Replica)(rp)
-	livenessMap, _ := r.store.livenessMap.Load().(livenesspb.IsLiveMap)
+	livenessMap, _ := r.store.livenessMap.Load().(livenesspb.IsLiveDetails)
 	return shouldCampaignOnLeaseRequestRedirect(
 		raftGroup.BasicStatus(),
 		livenessMap,

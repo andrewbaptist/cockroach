@@ -251,7 +251,7 @@ func replicaUnavailableError(
 ) error {
 	nonLiveRepls := roachpb.MakeReplicaSet(nil)
 	for _, rDesc := range desc.Replicas().Descriptors() {
-		if lm[rDesc.NodeID].IsLive {
+		if lm[rDesc.NodeID] {
 			continue
 		}
 		nonLiveRepls.AddReplica(rDesc)
@@ -259,7 +259,7 @@ func replicaUnavailableError(
 
 	canMakeProgress := desc.Replicas().CanMakeProgress(
 		func(replDesc roachpb.ReplicaDescriptor) bool {
-			return lm[replDesc.NodeID].IsLive
+			return lm[replDesc.NodeID]
 		},
 	)
 

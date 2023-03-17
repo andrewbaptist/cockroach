@@ -141,7 +141,7 @@ func calcReplicaMetrics(d calcReplicaMetricsInput) ReplicaMetrics {
 	leader := d.raftStatus != nil && d.raftStatus.RaftState == raft.StateLeader
 	var leaderBehindCount, leaderPausedFollowerCount int64
 	if leader {
-		leaderBehindCount = calcBehindCount(d.raftStatus, d.desc, d.livenessMap)
+		leaderBehindCount = calcBehindCount(d.raftStatus, d.desc)
 		leaderPausedFollowerCount = int64(len(d.paused))
 	}
 
@@ -200,12 +200,12 @@ func calcRangeCounter(
 ) (rangeCounter, unavailable, underreplicated, overreplicated bool) {
 	// If there is a live leaseholder (regardless of whether the lease is still
 	// valid) that leaseholder is responsible for range-level metrics.
-	if livenessMap[leaseStatus.Lease.Replica.NodeID].IsLive {
+	if livenessMap[leaseStatus.Lease.Replica.NodeID] {
 		rangeCounter = leaseStatus.OwnedBy(storeID)
 	} else {
 		// Otherwise, use the first live replica.
 		for _, rd := range desc.Replicas().Descriptors() {
-			if livenessMap[rd.NodeID].IsLive {
+			if livenessMap[rd.NodeID] {
 				rangeCounter = rd.StoreID == storeID
 				break
 			}
@@ -218,7 +218,7 @@ func calcRangeCounter(
 		neededVoters := allocatorimpl.GetNeededVoters(numVoters, clusterNodes)
 		neededNonVoters := allocatorimpl.GetNeededNonVoters(int(numVoters), int(numReplicas-numVoters), clusterNodes)
 		status := desc.Replicas().ReplicationStatus(func(rDesc roachpb.ReplicaDescriptor) bool {
-			return livenessMap[rDesc.NodeID].IsLive
+			return livenessMap[rDesc.NodeID]
 		},
 			// needed{Voters,NonVoters} - we don't care about the
 			// under/over-replication determinations from the report because
@@ -253,7 +253,7 @@ func calcLiveNonVoterReplicas(desc *roachpb.RangeDescriptor, livenessMap livenes
 func calcLiveReplicas(repls []roachpb.ReplicaDescriptor, livenessMap livenesspb.IsLiveMap) int {
 	var live int
 	for _, rd := range repls {
-		if livenessMap[rd.NodeID].IsLive {
+		if livenessMap[rd.NodeID] {
 			live++
 		}
 	}
@@ -263,7 +263,7 @@ func calcLiveReplicas(repls []roachpb.ReplicaDescriptor, livenessMap livenesspb.
 // calcBehindCount returns a total count of log entries that follower replicas
 // are behind. This can only be computed on the raft leader.
 func calcBehindCount(
-	raftStatus *raftSparseStatus, desc *roachpb.RangeDescriptor, livenessMap livenesspb.IsLiveMap,
+	raftStatus *raftSparseStatus, desc *roachpb.RangeDescriptor,
 ) int64 {
 	var behindCount int64
 	for _, rd := range desc.Replicas().Descriptors() {

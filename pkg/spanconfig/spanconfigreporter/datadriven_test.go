@@ -239,13 +239,7 @@ func newMockCluster(
 
 // GetIsLiveMap implements spanconfigreporter.Liveness.
 func (s *mockCluster) GetIsLiveMap() livenesspb.IsLiveMap {
-	isLiveMap := livenesspb.IsLiveMap{}
-	for nid, isLive := range s.liveness {
-		isLiveMap[nid] = livenesspb.IsLiveMapEntry{
-			IsLive: isLive,
-		}
-	}
-	return isLiveMap
+	return s.liveness
 }
 
 // GetStoreDescriptor implements constraint.StoreResolver.

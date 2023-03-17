@@ -56,7 +56,7 @@ func TestCalcRangeCounterIsLiveMap(t *testing.T) {
 
 	{
 		ctr, down, under, over := calcRangeCounter(1100, threeVotersAndSingleNonVoter, leaseStatus, livenesspb.IsLiveMap{
-			1000: livenesspb.IsLiveMapEntry{IsLive: true}, // by NodeID
+			1000: true,
 		}, 3 /* numVoters */, 4 /* numReplicas */, 4 /* clusterNodes */)
 
 		require.True(t, ctr)
@@ -67,7 +67,7 @@ func TestCalcRangeCounterIsLiveMap(t *testing.T) {
 
 	{
 		ctr, down, under, over := calcRangeCounter(1000, threeVotersAndSingleNonVoter, leaseStatus, livenesspb.IsLiveMap{
-			1000: livenesspb.IsLiveMapEntry{IsLive: false},
+			1000: false,
 		}, 3 /* numVoters */, 4 /* numReplicas */, 4 /* clusterNodes */)
 
 		// Does not confuse a non-live entry for a live one. In other words,
@@ -80,10 +80,10 @@ func TestCalcRangeCounterIsLiveMap(t *testing.T) {
 
 	{
 		ctr, down, under, over := calcRangeCounter(11, threeVotersAndSingleNonVoter, leaseStatus, livenesspb.IsLiveMap{
-			10:   livenesspb.IsLiveMapEntry{IsLive: true},
-			100:  livenesspb.IsLiveMapEntry{IsLive: true},
-			1000: livenesspb.IsLiveMapEntry{IsLive: true},
-			2000: livenesspb.IsLiveMapEntry{IsLive: true},
+			10:   true,
+			100:  true,
+			1000: true,
+			2000: true,
 		}, 3 /* numVoters */, 4 /* numReplicas */, 4 /* clusterNodes */)
 
 		require.True(t, ctr)
@@ -95,10 +95,10 @@ func TestCalcRangeCounterIsLiveMap(t *testing.T) {
 	{
 		// Single non-voter dead
 		ctr, down, under, over := calcRangeCounter(11, oneVoterAndThreeNonVoters, leaseStatus, livenesspb.IsLiveMap{
-			10:   livenesspb.IsLiveMapEntry{IsLive: true},
-			100:  livenesspb.IsLiveMapEntry{IsLive: true},
-			1000: livenesspb.IsLiveMapEntry{IsLive: false},
-			2000: livenesspb.IsLiveMapEntry{IsLive: true},
+			10:   true,
+			100:  true,
+			1000: false,
+			2000: true,
 		}, 1 /* numVoters */, 4 /* numReplicas */, 4 /* clusterNodes */)
 
 		require.True(t, ctr)
@@ -110,10 +110,10 @@ func TestCalcRangeCounterIsLiveMap(t *testing.T) {
 	{
 		// All non-voters are dead, but range is not unavailable
 		ctr, down, under, over := calcRangeCounter(11, oneVoterAndThreeNonVoters, leaseStatus, livenesspb.IsLiveMap{
-			10:   livenesspb.IsLiveMapEntry{IsLive: true},
-			100:  livenesspb.IsLiveMapEntry{IsLive: false},
-			1000: livenesspb.IsLiveMapEntry{IsLive: false},
-			2000: livenesspb.IsLiveMapEntry{IsLive: false},
+			10:   true,
+			100:  false,
+			1000: false,
+			2000: false,
 		}, 1 /* numVoters */, 4 /* numReplicas */, 4 /* clusterNodes */)
 
 		require.True(t, ctr)
@@ -125,10 +125,10 @@ func TestCalcRangeCounterIsLiveMap(t *testing.T) {
 	{
 		// More non-voters than needed
 		ctr, down, under, over := calcRangeCounter(11, oneVoterAndThreeNonVoters, leaseStatus, livenesspb.IsLiveMap{
-			10:   livenesspb.IsLiveMapEntry{IsLive: true},
-			100:  livenesspb.IsLiveMapEntry{IsLive: true},
-			1000: livenesspb.IsLiveMapEntry{IsLive: true},
-			2000: livenesspb.IsLiveMapEntry{IsLive: true},
+			10:   true,
+			100:  true,
+			1000: true,
+			2000: true,
 		}, 1 /* numVoters */, 3 /* numReplicas */, 4 /* clusterNodes */)
 
 		require.True(t, ctr)
@@ -240,7 +240,7 @@ func TestCalcRangeCounterLeaseHolder(t *testing.T) {
 		t.Run(tc.desc, func(t *testing.T) {
 			livenessMap := livenesspb.IsLiveMap{}
 			for _, nodeID := range tc.liveNodes {
-				livenessMap[nodeID] = livenesspb.IsLiveMapEntry{IsLive: true}
+				livenessMap[nodeID] = true
 			}
 			ctr, _, _, _ := calcRangeCounter(tc.storeID, rangeDesc, tc.leaseStatus, livenessMap,
 				3 /* numVoters */, 4 /* numReplicas */, 4 /* clusterNodes */)

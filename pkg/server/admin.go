@@ -15,6 +15,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/cockroachdb/cockroach/pkg/sql/optionalnodeliveness"
 	"io"
 	"net/http"
 	"sort"
@@ -49,7 +50,6 @@ import (
 	"github.com/cockroachdb/cockroach/pkg/sql/catalog/colinfo"
 	"github.com/cockroachdb/cockroach/pkg/sql/catalog/descpb"
 	"github.com/cockroachdb/cockroach/pkg/sql/isql"
-	"github.com/cockroachdb/cockroach/pkg/sql/optionalnodeliveness"
 	"github.com/cockroachdb/cockroach/pkg/sql/parser"
 	"github.com/cockroachdb/cockroach/pkg/sql/pgwire/pgcode"
 	"github.com/cockroachdb/cockroach/pkg/sql/pgwire/pgerror"
@@ -2166,10 +2166,7 @@ func (s *systemAdminServer) checkReadinessForHealthCheck(ctx context.Context) er
 func getLivenessStatusMap(
 	ctx context.Context, nl *liveness.NodeLiveness, now time.Time, st *cluster.Settings,
 ) (map[roachpb.NodeID]livenesspb.NodeLivenessStatus, error) {
-	livenesses, err := nl.GetLivenessesFromKV(ctx)
-	if err != nil {
-		return nil, err
-	}
+	livenesses := nl.GetIsLiveDetails()
 	threshold := storepool.TimeUntilStoreDead.Get(&st.SV)
 
 	statusMap := make(map[roachpb.NodeID]livenesspb.NodeLivenessStatus, len(livenesses))
@@ -2184,19 +2181,18 @@ func getLivenessStatusMap(
 // a slice containing the liveness record of all nodes that have ever been a part of the
 // cluster.
 func getLivenessResponse(
-	ctx context.Context, nl optionalnodeliveness.Interface, now time.Time, st *cluster.Settings,
+	nl optionalnodeliveness.Interface, now time.Time, st *cluster.Settings,
 ) (*serverpb.LivenessResponse, error) {
-	livenesses, err := nl.GetLivenessesFromKV(ctx)
-	if err != nil {
-		return nil, serverError(ctx, err)
-	}
+	livenessDetails := nl.GetIsLiveDetails()
+	var livenesses []livenesspb.Liveness
 
 	threshold := storepool.TimeUntilStoreDead.Get(&st.SV)
 
 	statusMap := make(map[roachpb.NodeID]livenesspb.NodeLivenessStatus, len(livenesses))
-	for _, liveness := range livenesses {
+	for nodeID, liveness := range livenessDetails {
 		status := storepool.LivenessStatus(liveness, now, threshold)
-		statusMap[liveness.NodeID] = status
+		statusMap[nodeID] = status
+		livenesses = append(livenesses, liveness)
 	}
 	return &serverpb.LivenessResponse{
 		Livenesses: livenesses,
@@ -2222,11 +2218,11 @@ func (s *adminServer) Liveness(
 // based on a KV transaction. To reach all nodes in the cluster, consider
 // using (statusServer).NodesWithLiveness instead.
 func (s *systemAdminServer) Liveness(
-	ctx context.Context, _ *serverpb.LivenessRequest,
+	_ context.Context, _ *serverpb.LivenessRequest,
 ) (*serverpb.LivenessResponse, error) {
 	clock := s.clock
 
-	return getLivenessResponse(ctx, s.nodeLiveness, clock.Now().GoTime(), s.st)
+	return getLivenessResponse(s.nodeLiveness, clock.Now().GoTime(), s.st)
 }
 
 func (s *adminServer) Jobs(
@@ -2862,12 +2858,9 @@ func (s *systemAdminServer) decommissionStatusHelper(
 		// For an example, see:
 		//
 		// https://github.com/cockroachdb/cockroach/issues/73636
-		ls, err := s.nodeLiveness.GetLivenessesFromKV(ctx)
-		if err != nil {
-			return nil, err
-		}
-		for _, rec := range ls {
-			livenessMap[rec.NodeID] = rec
+		lMap := s.nodeLiveness.GetIsLiveDetails()
+		for nodeID, l := range lMap {
+			livenessMap[nodeID] = l
 		}
 	}
 
@@ -3408,7 +3401,7 @@ func (s *systemAdminServer) RecoveryVerify(
 		return nil, err
 	}
 
-	return s.server.recoveryServer.Verify(ctx, request, s.nodeLiveness.GetIsLiveMap(), s.db)
+	return s.server.recoveryServer.Verify(ctx, request, s.nodeLiveness.GetMembershipMap(), s.nodeLiveness.GetIsLiveMap(), s.db)
 }
 
 // sqlQuery allows you to incrementally build a SQL query that uses

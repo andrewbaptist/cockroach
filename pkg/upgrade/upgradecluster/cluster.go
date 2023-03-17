@@ -13,10 +13,10 @@ package upgradecluster
 
 import (
 	"context"
+	"github.com/cockroachdb/cockroach/pkg/kv/kvserver/liveness/livenesspb"
 
 	"github.com/cockroachdb/cockroach/pkg/keys"
 	"github.com/cockroachdb/cockroach/pkg/kv"
-	"github.com/cockroachdb/cockroach/pkg/kv/kvserver/liveness/livenesspb"
 	"github.com/cockroachdb/cockroach/pkg/roachpb"
 	"github.com/cockroachdb/cockroach/pkg/rpc"
 	"github.com/cockroachdb/cockroach/pkg/server/serverpb"
@@ -62,8 +62,8 @@ type NodeDialer interface {
 // NodeLiveness is the subset of the interface satisfied by CRDB's node liveness
 // component that the upgrade manager relies upon.
 type NodeLiveness interface {
-	GetLivenessesFromKV(context.Context) ([]livenesspb.Liveness, error)
-	IsLive(roachpb.NodeID) (bool, error)
+	IsLive(roachpb.NodeID) bool
+	GetMembershipMap() livenesspb.LivenessMembership
 }
 
 // New constructs a new Cluster with the provided dependencies.

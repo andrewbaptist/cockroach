@@ -167,7 +167,7 @@ func (r *Reporter) SpanConfigConformance(
 
 					status := desc.Replicas().ReplicationStatus(
 						func(rDesc roachpb.ReplicaDescriptor) bool {
-							isLive := isLiveMap[rDesc.NodeID].IsLive
+							isLive := isLiveMap[rDesc.NodeID]
 							if !isLive {
 								unavailableNodes[rDesc.NodeID] = struct{}{}
 							}

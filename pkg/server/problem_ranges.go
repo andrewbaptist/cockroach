@@ -43,9 +43,7 @@ func (s *systemStatusServer) ProblemRanges(
 		if err != nil {
 			return nil, status.Errorf(codes.InvalidArgument, err.Error())
 		}
-		isLiveMap = livenesspb.IsLiveMap{
-			requestedNodeID: livenesspb.IsLiveMapEntry{IsLive: true},
-		}
+		isLiveMap = livenesspb.IsLiveMap{requestedNodeID: true}
 	}
 
 	type nodeResponse struct {
