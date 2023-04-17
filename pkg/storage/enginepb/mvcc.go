@@ -219,6 +219,31 @@ func (ms *MVCCStats) Subtract(oms MVCCStats) {
 	ms.AbortSpanBytes -= oms.AbortSpanBytes
 }
 
+// Multiply multiplies all the "accounting" data in the stats by a factor.
+func (ms *MVCCStats) Multiply(factor float64) {
+	// Enforce the max LastUpdateNanos for both ages based on their
+	// pre-subtraction state.
+	ms.ContainsEstimates = 1
+
+	// Now that we've done that, we may subtract.
+	ms.LiveBytes = int64(float64(ms.LiveBytes) * factor)
+	ms.KeyBytes = int64(float64(ms.KeyBytes) * factor)
+	ms.ValBytes = int64(float64(ms.ValBytes) * factor)
+	ms.IntentBytes = int64(float64(ms.IntentBytes) * factor)
+	ms.LiveCount = int64(float64(ms.LiveCount) * factor)
+	ms.KeyCount = int64(float64(ms.KeyCount) * factor)
+	ms.ValCount = int64(float64(ms.ValCount) * factor)
+	ms.IntentCount = int64(float64(ms.IntentCount) * factor)
+	ms.SeparatedIntentCount = int64(float64(ms.SeparatedIntentCount) * factor)
+	ms.RangeKeyCount = int64(float64(ms.RangeValCount) * factor)
+	ms.RangeKeyBytes = int64(float64(ms.RangeValBytes) * factor)
+	ms.RangeValCount = int64(float64(ms.RangeValCount) * factor)
+	ms.RangeValBytes = int64(float64(ms.RangeValBytes) * factor)
+	ms.SysBytes = int64(float64(ms.SysBytes) * factor)
+	ms.SysCount = int64(float64(ms.SysCount) * factor)
+	ms.AbortSpanBytes = int64(float64(ms.AbortSpanBytes) * factor)
+}
+
 // IsInline returns true if the value is inlined in the metadata.
 func (meta MVCCMetadata) IsInline() bool {
 	return meta.RawBytes != nil

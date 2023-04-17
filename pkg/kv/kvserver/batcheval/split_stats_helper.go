@@ -135,6 +135,17 @@ type splitStatsHelperInput struct {
 	ScanRightFirst bool
 }
 
+func makeNoopSplitStatsHelper(input splitStatsHelperInput) (splitStatsHelper, error) {
+	stats := input.AbsPreSplitBothEstimated
+	stats.Multiply(0.5)
+	return splitStatsHelper{
+		in:                splitStatsHelperInput{},
+		absPostSplitLeft:  &stats,
+		absPostSplitRight: &stats,
+	}, nil
+
+}
+
 // makeSplitStatsHelper initializes a splitStatsHelper. The values in the input
 // are assumed to not change outside of the helper and must no longer be used.
 // The provided AbsPostSplitLeftFn and AbsPostSplitRightFn recompute the left

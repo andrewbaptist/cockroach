@@ -1089,7 +1089,7 @@ func splitTriggerHelper(
 	// modifications to the left hand side are allowed after this line and any
 	// modifications to the right hand side are accounted for by updating the
 	// helper's AbsPostSplitRight() reference.
-	h, err := makeSplitStatsHelper(statsInput)
+	h, err := makeNoopSplitStatsHelper(statsInput)
 	if err != nil {
 		return enginepb.MVCCStats{}, result.Result{}, err
 	}
