@@ -12,6 +12,7 @@ package server
 
 import (
 	"context"
+	"github.com/cockroachdb/cockroach/pkg/kv/kvserver/liveness/livenesspb"
 	"math"
 	"net"
 	"net/url"
@@ -895,7 +896,7 @@ func newSQLServer(ctx context.Context, cfg sqlServerArgs) (*SQLServer, error) {
 		// leaseholders, and preventing processor scheduling on them can cause a
 		// performance cliff for e.g. table reads that then hit the network.
 		isAvailable = func(sqlInstanceID base.SQLInstanceID) bool {
-			return nodeLiveness.GetNodeVitalityFromCache(roachpb.NodeID(sqlInstanceID)).IsAlive()
+			return nodeLiveness.GetNodeVitalityFromCache(roachpb.NodeID(sqlInstanceID)).IsLive(livenesspb.DistSQL)
 		}
 	} else {
 		// We're on a SQL tenant, so this is the only node DistSQL will ever
@@ -919,11 +920,11 @@ func newSQLServer(ctx context.Context, cfg sqlServerArgs) (*SQLServer, error) {
 			if err != nil {
 				return nil, err
 			}
-			for _, l := range ls {
+			for nodeID, l := range ls {
 				if l.IsDecommissioned() {
 					continue
 				}
-				ns = append(ns, l.Liveness.NodeID)
+				ns = append(ns, nodeID)
 			}
 			return ns, nil
 		}
