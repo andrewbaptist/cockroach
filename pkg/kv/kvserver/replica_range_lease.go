@@ -45,7 +45,6 @@ package kvserver
 import (
 	"context"
 	"fmt"
-	"github.com/cockroachdb/cockroach/pkg/kv/kvserver/liveness/livenesspb"
 	"time"
 
 	"github.com/cockroachdb/cockroach/pkg/base"
@@ -55,6 +54,7 @@ import (
 	"github.com/cockroachdb/cockroach/pkg/kv/kvserver/constraint"
 	"github.com/cockroachdb/cockroach/pkg/kv/kvserver/kvserverpb"
 	"github.com/cockroachdb/cockroach/pkg/kv/kvserver/liveness"
+	"github.com/cockroachdb/cockroach/pkg/kv/kvserver/liveness/livenesspb"
 	"github.com/cockroachdb/cockroach/pkg/kv/kvserver/raftutil"
 	"github.com/cockroachdb/cockroach/pkg/roachpb"
 	"github.com/cockroachdb/cockroach/pkg/settings"
@@ -820,7 +820,8 @@ func (r *Replica) ownsValidLeaseRLocked(ctx context.Context, now hlc.ClockTimest
 // shouldUseExpirationLeaseRLocked. We can merge these once there are no more
 // callers: when expiration leases don't quiesce and are always eagerly renewed.
 func (r *Replica) requiresExpirationLeaseRLocked() bool {
-	return r.store.cfg.NodeLiveness == nil ||
+	selfLiveness, ok := r.store.cfg.NodeLiveness.Self()
+	return !ok || selfLiveness.Epoch == 0 ||
 		r.mu.state.Desc.StartKey.Less(roachpb.RKey(keys.NodeLivenessKeyMax))
 }
 
