@@ -710,13 +710,6 @@ func (r *Replica) applySnapshot(
 		kvpb.RangeFeedRetryError_REASON_RAFT_SNAPSHOT,
 	)
 
-	// Update the replica's cached byte thresholds. This is a no-op if the system
-	// config is not available, in which case we rely on the next gossip update
-	// to perform the update.
-	if err := r.updateRangeInfo(ctx, desc); err != nil {
-		log.Fatalf(ctx, "unable to update range info while applying snapshot: %+v", err)
-	}
-
 	return nil
 }
 
