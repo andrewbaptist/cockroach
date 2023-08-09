@@ -391,6 +391,7 @@ type StoreTestingKnobs struct {
 	SpanConfigUpdateInterceptor func(spanconfig.Update)
 	// SetSpanConfigInterceptor is called before updating a replica's embedded
 	// SpanConfig. The returned SpanConfig is used instead.
+	// FIXME
 	SetSpanConfigInterceptor func(*roachpb.RangeDescriptor, roachpb.SpanConfig) roachpb.SpanConfig
 	// If set, use the given version as the initial replica version when
 	// bootstrapping ranges. This is used for testing the migration

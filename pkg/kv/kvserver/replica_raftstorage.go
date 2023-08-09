@@ -383,21 +383,12 @@ func (r *Replica) updateRangeInfo(ctx context.Context, desc *roachpb.RangeDescri
 	// the original range wont work as the original and new ranges might belong
 	// to different zones.
 	// Load the system config.
-	confReader, err := r.store.GetConfReader(ctx)
-	if errors.Is(err, errSpanConfigsUnavailable) {
-		// This could be before the span config subscription was ever
-		// established.
-		log.Warningf(ctx, "unable to retrieve conf reader, cannot determine range MaxBytes")
-		return nil
-	}
-	if err != nil {
-		return err
-	}
-
 	// Find span config for this range.
-	conf, err := confReader.GetSpanConfigForKey(ctx, desc.StartKey)
+	conf, err := r.SpanConfig()
 	if err != nil {
-		return errors.Wrapf(err, "%s: failed to lookup span config", r)
+		// We don't have the span config for this range yet, it will update when we get it.
+		log.Infof(ctx, "span config not yet available: %v", err)
+		return nil
 	}
 
 	r.SetSpanConfig(conf)

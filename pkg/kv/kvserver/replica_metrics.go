@@ -326,10 +326,6 @@ func (r *Replica) needsSplitBySizeRLocked() bool {
 	return exceeded
 }
 
-func (r *Replica) needsMergeBySizeRLocked() bool {
-	return r.mu.state.Stats.Total() < r.mu.conf.RangeMinBytes
-}
-
 func (r *Replica) needsRaftLogTruncationLocked() bool {
 	// We don't want to check the Raft log for truncation on every write
 	// operation or even every operation which occurs after the Raft log exceeds

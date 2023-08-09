@@ -1959,16 +1959,17 @@ func (s *topLevelServer) PreStart(ctx context.Context) error {
 
 	log.Event(ctx, "accepting connections")
 
-	// Begin recording status summaries.
-	if err := s.node.startWriteNodeStatus(base.DefaultMetricsSampleInterval); err != nil {
-		return err
-	}
-
 	if subscriber, ok := s.spanConfigSubscriber.(*spanconfigkvsubscriber.KVSubscriber); ok {
 		if err := subscriber.Start(workersCtx, s.stopper); err != nil {
 			return err
 		}
 	}
+
+	// Begin recording status summaries.
+	if err := s.node.startWriteNodeStatus(base.DefaultMetricsSampleInterval); err != nil {
+		return err
+	}
+
 	// Start garbage collecting system events.
 	if err := startSystemLogsGC(workersCtx, s.sqlServer); err != nil {
 		return err

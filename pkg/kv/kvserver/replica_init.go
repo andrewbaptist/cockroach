@@ -169,7 +169,6 @@ func newUninitializedReplicaWithoutRaftGroup(
 	)
 
 	r.splitQueueThrottle = util.Every(splitQueueThrottleDuration)
-	r.mergeQueueThrottle = util.Every(mergeQueueThrottleDuration)
 
 	onTrip := func() {
 		telemetry.Inc(telemetryTripAsync)
