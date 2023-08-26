@@ -28,6 +28,7 @@ func registerAcceptance(r registry.Registry) {
 		timeout           time.Duration
 		encryptionSupport registry.EncryptionSupport
 		defaultLeases     bool
+		geo               bool
 	}{
 		registry.OwnerKV: {
 			{name: "decommission-self", fn: runDecommissionSelf},
@@ -47,6 +48,7 @@ func registerAcceptance(r registry.Registry) {
 			{name: "cli/node-status", fn: runCLINodeStatus},
 			{name: "cluster-init", fn: runClusterInit},
 			{name: "rapid-restart", fn: runRapidRestart},
+			{name: "kv-stress", fn: runKvStress, geo: true, numNodes: 7, timeout: 10 * time.Minute},
 		},
 		registry.OwnerMultiTenant: {
 			{
@@ -110,6 +112,7 @@ func registerAcceptance(r registry.Registry) {
 				Suites:            registry.Suites(registry.Nightly, registry.Quick),
 			}
 
+			spec.Cluster.Geo = tc.geo
 			if tc.timeout != 0 {
 				spec.Timeout = tc.timeout
 			}

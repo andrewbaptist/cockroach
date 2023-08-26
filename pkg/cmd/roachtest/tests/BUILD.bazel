@@ -90,6 +90,7 @@ go_library(
         "jobs.go",
         "knex.go",
         "kv.go",
+        "kv_stress.go",
         "kvbench.go",
         "latency_verifier.go",
         "lease_preferences.go",
