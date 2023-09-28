@@ -311,8 +311,9 @@ func testStoreConfig(clock *hlc.Clock, version roachpb.Version) StoreConfig {
 	}
 	st := cluster.MakeTestingClusterSettingsWithVersions(version, version, true)
 	tracer := tracing.NewTracerWithOpt(context.TODO(), tracing.WithClusterSettings(&st.SV))
+	defaultSpanConfig := zonepb.DefaultZoneConfigRef().AsSpanConfig()
 	sc := StoreConfig{
-		DefaultSpanConfig:           zonepb.DefaultZoneConfigRef().AsSpanConfig(),
+		DefaultSpanConfig:           defaultSpanConfig,
 		Settings:                    st,
 		AmbientCtx:                  log.MakeTestingAmbientContext(tracer),
 		Clock:                       clock,
@@ -326,7 +327,7 @@ func testStoreConfig(clock *hlc.Clock, version roachpb.Version) StoreConfig {
 		// Use a constant empty system config, which mirrors the previously
 		// existing logic to install an empty system config in gossip.
 		SystemConfigProvider: config.NewConstantSystemConfigProvider(
-			config.NewSystemConfig(zonepb.DefaultZoneConfigRef()),
+			config.NewSystemConfig(zonepb.DefaultSystemZoneConfigRef()),
 		),
 	}
 	sc.TestingKnobs.TenantRateKnobs.Authorizer = tenantcapabilitiesauthorizer.NewAllowEverythingAuthorizer()
@@ -1869,7 +1870,11 @@ func (s *Store) SetDraining(drain bool, reporter func(int, redact.SafeString), v
 					// without leases we probably should try to move the leadership
 					// manually to a non-draining replica.
 
-					desc, conf := r.DescAndSpanConfig()
+					desc := r.Desc()
+					conf, err := r.LoadSpanConfig(ctx)
+					if err != nil {
+						log.Infof(ctx, "skipping range %s without a valid span config", desc)
+					}
 
 					if verbose || log.V(1) {
 						// This logging is useful to troubleshoot incomplete drains.
@@ -2270,10 +2275,12 @@ func (s *Store) GetConfReader(ctx context.Context) (spanconfig.StoreReader, erro
 		return nil, errSpanConfigsUnavailable
 	}
 	if s.cfg.TestingKnobs.ConfReaderInterceptor != nil {
-		return s.cfg.TestingKnobs.ConfReaderInterceptor(), nil
+		if err := s.cfg.TestingKnobs.ConfReaderInterceptor(); err != nil {
+			return nil, err
+		}
 	}
 
-	if s.cfg.SpanConfigsDisabled || s.TestingKnobs().UseSystemConfigSpanForQueues {
+	if s.cfg.SpanConfigsDisabled {
 		sysCfg := s.cfg.SystemConfigProvider.GetSystemConfig()
 		if sysCfg == nil {
 			return nil, errSpanConfigsUnavailable
@@ -2490,14 +2497,14 @@ func (s *Store) GetSpanConfigForKey(
 	if s.cfg.SpanConfigsDisabled {
 		return &s.cfg.DefaultSpanConfig, nil
 	}
+	if s.cfg.TestingKnobs.ConfReaderInterceptor != nil {
+		if err := s.cfg.TestingKnobs.ConfReaderInterceptor(); err != nil {
+			return nil, err
+		}
+	}
 	confReader, err := s.GetConfReader(ctx)
 	if err != nil {
 		return nil, err
-	}
-	if s.cfg.TestingKnobs.ConfReaderInterceptor != nil {
-		if reader := s.cfg.TestingKnobs.ConfReaderInterceptor(); reader != nil {
-			confReader = reader
-		}
 	}
 	conf, err := confReader.GetSpanConfigForKey(ctx, key)
 	return &conf, err
@@ -2547,7 +2554,7 @@ func (s *Store) onSpanConfigUpdate(ctx context.Context, updated roachpb.Span) {
 					log.Errorf(replCtx, "skipped applying update, unexpected error reading from subscriber: %v", err)
 					return err
 				}
-				changed = repl.SetSpanConfig(*conf)
+				changed = repl.onSpanConfigUpdate(conf)
 			}
 			if changed {
 				repl.MaybeQueue(ctx, now)
@@ -2558,6 +2565,26 @@ func (s *Store) onSpanConfigUpdate(ctx context.Context, updated roachpb.Span) {
 		// Errors here should not be possible, but if there is one, log loudly.
 		log.Errorf(ctx, "unexpected error visiting replicas: %v", err)
 	}
+}
+
+// applyAllFromSpanConfigStore applies, on each replica, span configs from the
+// embedded span config store.
+func (s *Store) applyAllFromSpanConfigStore(ctx context.Context) {
+	now := s.cfg.Clock.NowAsClockTimestamp()
+	newStoreReplicaVisitor(s).Visit(func(repl *Replica) bool {
+		replCtx := repl.AnnotateCtx(ctx)
+		key := repl.Desc().StartKey
+		conf, err := s.cfg.SpanConfigSubscriber.GetSpanConfigForKey(replCtx, key)
+		if err != nil {
+			log.Errorf(ctx, "skipped applying config update, unexpected error reading from subscriber: %v", err)
+			return true // more
+		}
+
+		if repl.onSpanConfigUpdate(&conf) {
+			repl.MaybeQueue(replCtx, now)
+		}
+		return true // more
+	})
 }
 
 // GossipStore broadcasts the store on the gossip network.

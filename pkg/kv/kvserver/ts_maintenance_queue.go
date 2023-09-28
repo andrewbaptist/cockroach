@@ -127,7 +127,7 @@ func newTimeSeriesMaintenanceQueue(
 }
 
 func (q *timeSeriesMaintenanceQueue) shouldQueue(
-	ctx context.Context, now hlc.ClockTimestamp, repl *Replica, _ *roachpb.SpanConfig,
+	ctx context.Context, now hlc.ClockTimestamp, repl *Replica, conf *roachpb.SpanConfig,
 ) (shouldQ bool, priority float64) {
 	if !repl.store.cfg.TestingKnobs.DisableLastProcessedCheck {
 		lpTS, err := repl.getQueueLastProcessed(ctx, q.name)
@@ -147,7 +147,7 @@ func (q *timeSeriesMaintenanceQueue) shouldQueue(
 }
 
 func (q *timeSeriesMaintenanceQueue) process(
-	ctx context.Context, repl *Replica, _ *roachpb.SpanConfig,
+	ctx context.Context, repl *Replica, conf *roachpb.SpanConfig,
 ) (processed bool, err error) {
 	desc := repl.Desc()
 	eng := repl.store.StateEngine()
@@ -165,7 +165,7 @@ func (q *timeSeriesMaintenanceQueue) process(
 }
 
 func (*timeSeriesMaintenanceQueue) postProcessScheduled(
-	ctx context.Context, replica replicaInQueue, _ *roachpb.SpanConfig, priority float64,
+	ctx context.Context, replica replicaInQueue, conf *roachpb.SpanConfig, priority float64,
 ) {
 }
 

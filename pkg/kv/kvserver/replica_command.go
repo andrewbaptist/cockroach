@@ -72,16 +72,17 @@ var sendSnapshotTimeout = envutil.EnvOrDefaultDuration(
 // AdminSplit divides the range into two ranges using args.SplitKey.
 func (r *Replica) AdminSplit(
 	ctx context.Context, args kvpb.AdminSplitRequest, reason redact.RedactableString,
-) (kvpb.AdminSplitResponse, *kvpb.Error) {
+) (reply kvpb.AdminSplitResponse, kvErr *kvpb.Error) {
 	if len(args.SplitKey) == 0 {
 		return kvpb.AdminSplitResponse{}, kvpb.NewErrorf("cannot split range with no key provided")
 	}
-	var reply kvpb.AdminSplitResponse
-	kvErr := r.executeAdminCommandWithDescriptor(ctx, func(desc *roachpb.RangeDescriptor) error {
-		conf, err := r.LoadSpanConfig(ctx)
-		if err != nil {
-			return err
-		}
+	conf, err := r.LoadSpanConfig(ctx)
+	if err != nil {
+		return kvpb.AdminSplitResponse{}, kvpb.NewError(err)
+	}
+
+	kvErr = r.executeAdminCommandWithDescriptor(ctx, func(desc *roachpb.RangeDescriptor) error {
+		var err error
 		reply, err = r.adminSplitWithDescriptor(ctx, args, desc, conf, true /* delayable */, reason, false /* findFirstSafeKey */)
 		return err
 	})
@@ -3579,9 +3580,9 @@ type RelocateOneOptions interface {
 	Allocator() allocatorimpl.Allocator
 	// StorePool returns the store's configured store pool.
 	StorePool() storepool.AllocatorStorePool
-	// LoadSpanConfig loads the span configuration for the range with start key.
+	// LoadSpanConfig returns the span configuration for the range with start key.
 	LoadSpanConfig(ctx context.Context, startKey roachpb.RKey) (*roachpb.SpanConfig, error)
-	// Leaseholder returns the descriptor of the replica which holds the lease
+	// LeaseHolder returns the descriptor of the replica which holds the lease
 	// on the range with start key.
 	Leaseholder(ctx context.Context, startKey roachpb.RKey) (roachpb.ReplicaDescriptor, error)
 }
@@ -3600,15 +3601,11 @@ func (roo *replicaRelocateOneOptions) StorePool() storepool.AllocatorStorePool {
 	return roo.store.cfg.StorePool
 }
 
-// LoadSpanConfig loads the span configuration for the range with start key.
+// LoadSpanConfig returns the span configuration for the range with start key.
 func (roo *replicaRelocateOneOptions) LoadSpanConfig(
 	ctx context.Context, startKey roachpb.RKey,
 ) (*roachpb.SpanConfig, error) {
-	conf, err := roo.store.GetSpanConfigForKey(ctx, startKey)
-	if err != nil {
-		return nil, errors.Wrap(err, "can't relocate range")
-	}
-	return conf, nil
+	return roo.store.GetSpanConfigForKey(ctx, startKey)
 }
 
 // Leaseholder returns the descriptor of the replica which holds the lease on
@@ -4013,9 +4010,6 @@ func (r *Replica) adminScatter(
 	canTransferLease := func(ctx context.Context, repl plan.LeaseCheckReplica, conf *roachpb.SpanConfig) bool {
 		return allowLeaseTransfer
 	}
-	// conf gets set within the loop. We want the same conf that processOneChange
-	// used in this loop.
-	var conf *roachpb.SpanConfig
 	for re := retry.StartWithCtx(ctx, retryOpts); re.Next(); {
 		if currentAttempt == maxAttempts {
 			break
@@ -4024,8 +4018,7 @@ func (r *Replica) adminScatter(
 			allowLeaseTransfer = true
 		}
 		desc := r.Desc()
-		var err error
-		conf, err = rq.replicaCanBeProcessed(ctx, r, false /* acquireLeaseIfNeeded */)
+		conf, err := rq.replicaCanBeProcessed(ctx, r, false /* acquireLeaseIfNeeded */)
 		if err != nil {
 			// The replica can not be processed, so skip it.
 			break
@@ -4048,8 +4041,13 @@ func (r *Replica) adminScatter(
 	// queue would do on its own (#17341), do so after the replicate queue is
 	// done by transferring the lease to any of the given N replicas with
 	// probability 1/N of choosing each.
-	if args.RandomizeLeases && conf != nil && r.OwnsValidLease(ctx, r.store.Clock().NowAsClockTimestamp()) {
+	if args.RandomizeLeases && r.OwnsValidLease(ctx, r.store.Clock().NowAsClockTimestamp()) {
 		desc := r.Desc()
+		conf, err := r.LoadSpanConfig(ctx)
+		if err != nil {
+			// We don't have the span config for this range.
+			return kvpb.AdminScatterResponse{}, err
+		}
 		potentialLeaseTargets := r.store.allocator.ValidLeaseTargets(
 			ctx, r.store.cfg.StorePool, desc, conf, desc.Replicas().VoterDescriptors(), r, allocator.TransferLeaseOptions{})
 		if len(potentialLeaseTargets) > 0 {

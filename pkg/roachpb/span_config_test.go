@@ -73,10 +73,10 @@ func TestSpanConfigHasConfigurationChange(t *testing.T) {
 		ExcludeDataFromBackup: false,
 	}
 	require.NotEqual(t, spanConfig1, spanConfig2)
-	require.True(t, spanConfig1.HasConfigurationChange(spanConfig2))
+	require.True(t, spanConfig1.HasConfigurationChange(&spanConfig2))
 	// Now they are the same other than the PTS
 	spanConfig2.Constraints = spanConfig1.Constraints
-	require.False(t, spanConfig1.HasConfigurationChange(spanConfig2))
+	require.False(t, spanConfig1.HasConfigurationChange(&spanConfig2))
 	// Ensure that HasConfigurationChange didn't change the spanConfig.
 	require.Equal(t, spanConfig1, spanConfig1Copy)
 

@@ -4316,11 +4316,6 @@ func TestMergeQueue(t *testing.T) {
 	store := tc.GetFirstStoreFromServer(t, 0)
 	store.SetMergeQueueActive(true)
 	kvserverbase.MergeQueueEnabled.Override(ctx, &settings.SV, true)
-
-	split := func(t *testing.T, key roachpb.Key, expirationTime hlc.Timestamp) {
-		t.Helper()
-		args := adminSplitArgs(key)
-		args.ExpirationTime = expirationTime
 		if _, pErr := kv.SendWrapped(ctx, store.DB().NonTransactionalSender(), args); pErr != nil {
 			t.Fatal(pErr)
 		}

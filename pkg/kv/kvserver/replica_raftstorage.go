@@ -457,8 +457,8 @@ func (r *Replica) updateRangeInfo(ctx context.Context, desc *roachpb.RangeDescri
 	// 2. After a new range is created by a split, only copying maxBytes from
 	// the original range wont work as the original and new ranges might belong
 	// to different zones.
-	// Find span config for this range.
-	conf, err := r.store.GetSpanConfigForKey(ctx, desc.StartKey)
+	// Load the system config.
+	conf, err := r.LoadSpanConfig(ctx)
 	if errors.Is(err, errSpanConfigsUnavailable) {
 		// This could be before the span config subscription was ever
 		// established.
@@ -469,8 +469,7 @@ func (r *Replica) updateRangeInfo(ctx context.Context, desc *roachpb.RangeDescri
 		return errors.Wrapf(err, "%s: failed to lookup span config", r)
 	}
 
-	changed := r.SetSpanConfig(*conf)
-	if changed {
+	if r.onSpanConfigUpdate(conf) {
 		r.MaybeQueue(ctx, r.store.cfg.Clock.NowAsClockTimestamp())
 	}
 

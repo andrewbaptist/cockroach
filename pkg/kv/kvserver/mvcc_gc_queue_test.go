@@ -911,9 +911,13 @@ func testMVCCGCQueueProcessImpl(t *testing.T, useEfos bool) {
 	// Process through a scan queue.
 	mgcq := newMVCCGCQueue(tc.store)
 	conf, err := tc.repl.LoadSpanConfig(ctx)
-	require.NoError(t, err)
+	if err != nil {
+		t.Fatal(err)
+	}
 	processed, err := mgcq.process(ctx, tc.repl, conf)
-	require.NoError(t, err)
+	if err != nil {
+		t.Fatal(err)
+	}
 	assert.True(t, processed, "queue not processed")
 
 	expKVs := []struct {
@@ -1445,6 +1449,7 @@ func TestMVCCGCQueueChunkRequests(t *testing.T) {
 	require.NoError(t, err)
 	tc.manualClock.Advance(conf.TTL() + 1)
 	mgcq := newMVCCGCQueue(tc.store)
+	processed, err := mgcq.process(ctx, tc.repl, conf)
 	processed, err := mgcq.process(ctx, tc.repl, conf)
 	require.NoError(t, err)
 	assert.True(t, processed, "queue not processed")

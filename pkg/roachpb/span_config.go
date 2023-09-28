@@ -50,7 +50,7 @@ func (s *SpanConfig) IsEmpty() bool {
 // HasConfigurationChange is true if there is a change to this SpanConfig that
 // is initiated by the end user (directly or indirectly) rather than by a
 // background system process (like a PTS update).
-func (s *SpanConfig) HasConfigurationChange(other SpanConfig) bool {
+func (s *SpanConfig) HasConfigurationChange(other *SpanConfig) bool {
 	this := *s
 	// Clear out the protection policies from both SpanConfigs.
 	this.GCPolicy.ProtectionPolicies = nil
