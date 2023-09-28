@@ -28,7 +28,6 @@ import (
 	"github.com/cockroachdb/cockroach/pkg/roachpb"
 	"github.com/cockroachdb/cockroach/pkg/settings"
 	"github.com/cockroachdb/cockroach/pkg/settings/cluster"
-	"github.com/cockroachdb/cockroach/pkg/spanconfig"
 	"github.com/cockroachdb/cockroach/pkg/sql/catalog/bootstrap"
 	"github.com/cockroachdb/cockroach/pkg/storage/enginepb"
 	"github.com/cockroachdb/cockroach/pkg/testutils"
@@ -63,8 +62,9 @@ func (tq *testQueueImpl) shouldQueue(
 }
 
 func (tq *testQueueImpl) process(
-	_ context.Context, _ *Replica, _ *roachpb.SpanConfig,
+	ctx context.Context, r *Replica, _ *roachpb.SpanConfig,
 ) (bool, error) {
+	log.Infof(ctx, "Processing %v", r)
 	atomic.AddInt32(&tq.processed, 1)
 	if tq.err != nil {
 		return false, tq.err
@@ -724,7 +724,7 @@ func TestAcceptsUnsplitRanges(t *testing.T) {
 		},
 	}
 
-	bq := makeTestBaseQueue("test", testQueue, s, queueConfig{maxSize: 2})
+	bq := makeTestBaseQueue("test", testQueue, s, queueConfig{maxSize: 2, acceptsUnsplitRanges: false, needsSpanConfigs: true})
 	bq.Start(stopper)
 
 	// Check our config.
