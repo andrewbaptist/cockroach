@@ -38,16 +38,16 @@ func TestValidSetShowZones(t *testing.T) {
 	sqlDB := sqlutils.MakeSQLRunner(db)
 	sqlDB.Exec(t, `CREATE DATABASE d; USE d; CREATE TABLE t ();`)
 
-	yamlDefault := fmt.Sprintf("gc: {ttlseconds: %d}", s.DefaultZoneConfig().GC.TTLSeconds)
+	yamlDefault := fmt.Sprintf("gc: {ttlseconds: %d}", zonepb.DefaultZoneConfig().GC.TTLSeconds)
 	yamlOverride := "gc: {ttlseconds: 42}"
-	zoneOverride := s.DefaultZoneConfig()
+	zoneOverride := zonepb.DefaultZoneConfig()
 	zoneOverride.GC = &zonepb.GCPolicy{TTLSeconds: 42}
 	partialZoneOverride := *zonepb.NewZoneConfig()
 	partialZoneOverride.GC = &zonepb.GCPolicy{TTLSeconds: 42}
 
 	defaultRow := sqlutils.ZoneRow{
 		ID:     keys.RootNamespaceID,
-		Config: s.DefaultZoneConfig(),
+		Config: zonepb.DefaultZoneConfig(),
 	}
 	defaultOverrideRow := sqlutils.ZoneRow{
 		ID:     keys.RootNamespaceID,
@@ -244,12 +244,12 @@ func TestZoneInheritField(t *testing.T) {
 
 	defaultRow := sqlutils.ZoneRow{
 		ID:     keys.RootNamespaceID,
-		Config: s.DefaultZoneConfig(),
+		Config: zonepb.DefaultZoneConfig(),
 	}
 
 	newReplicationFactor := 10
 	tableID := sqlutils.QueryTableID(t, db, "d", "public", "t")
-	newDefCfg := s.DefaultZoneConfig()
+	newDefCfg := zonepb.DefaultZoneConfig()
 	newDefCfg.NumReplicas = proto.Int32(int32(newReplicationFactor))
 
 	newDefaultRow := sqlutils.ZoneRow{
@@ -259,7 +259,7 @@ func TestZoneInheritField(t *testing.T) {
 
 	newTableRow := sqlutils.ZoneRow{
 		ID:     tableID,
-		Config: s.DefaultZoneConfig(),
+		Config: zonepb.DefaultZoneConfig(),
 	}
 
 	// Doesn't have any values of its own.

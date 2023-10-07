@@ -524,8 +524,8 @@ func TestDropIndexWithZoneConfigOSS(t *testing.T) {
 	// required" error.
 	zoneConfig := zonepb.ZoneConfig{
 		Subzones: []zonepb.Subzone{
-			{IndexID: uint32(tableDesc.GetPrimaryIndexID()), Config: s.DefaultZoneConfig()},
-			{IndexID: uint32(index.GetID()), Config: s.DefaultZoneConfig()},
+			{IndexID: uint32(tableDesc.GetPrimaryIndexID()), Config: zonepb.DefaultZoneConfig()},
+			{IndexID: uint32(index.GetID()), Config: zonepb.DefaultZoneConfig()},
 		},
 	}
 	zoneConfigBytes, err := protoutil.Marshal(&zoneConfig)

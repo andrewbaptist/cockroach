@@ -53,8 +53,7 @@ func NewSystemDatabaseCache(codec keys.SQLCodec, settings *cluster.Settings) *Sy
 	// reserved range from the bootstrapped schema, which are known to be valid.
 	ms := bootstrap.MakeMetadataSchema(
 		codec,
-		zonepb.DefaultZoneConfigRef(),
-		zonepb.DefaultSystemZoneConfigRef(),
+		zonepb.DefaultZoneConfig(),
 	)
 	var warm nstree.MutableCatalog
 	_ = ms.ForEachCatalogDescriptor(func(desc catalog.Descriptor) error {

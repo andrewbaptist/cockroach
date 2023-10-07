@@ -17,6 +17,7 @@ import (
 	"context"
 	"encoding/hex"
 	"encoding/json"
+	"github.com/gogo/protobuf/proto"
 	"sort"
 	"strings"
 
@@ -53,11 +54,10 @@ type MetadataSchema struct {
 // the "system" database.
 func MakeMetadataSchema(
 	codec keys.SQLCodec,
-	defaultZoneConfig *zonepb.ZoneConfig,
-	defaultSystemZoneConfig *zonepb.ZoneConfig,
+	defaultZoneConfig zonepb.ZoneConfig,
 ) MetadataSchema {
 	ms := MetadataSchema{codec: codec}
-	addSystemDatabaseToSchema(&ms, defaultZoneConfig, defaultSystemZoneConfig)
+	addSystemDatabaseToSchema(&ms, defaultZoneConfig)
 	return ms
 }
 
@@ -503,8 +503,7 @@ func addSplitIDs(target *MetadataSchema) {
 // list contains extra entries for the system tenant.
 func InitialZoneConfigKVs(
 	codec keys.SQLCodec,
-	defaultZoneConfig *zonepb.ZoneConfig,
-	defaultSystemZoneConfig *zonepb.ZoneConfig,
+	defaultZoneConfig zonepb.ZoneConfig,
 ) (ret []roachpb.KeyValue) {
 	const skippedColumnFamilyID = 0
 	w := MakeKVWriter(codec, systemschema.ZonesTable, skippedColumnFamilyID)
@@ -522,7 +521,7 @@ func InitialZoneConfigKVs(
 
 	// Both the system tenant and secondary tenants get their own RANGE DEFAULT
 	// zone configuration.
-	add(keys.RootNamespaceID, defaultZoneConfig)
+	add(keys.RootNamespaceID, &defaultZoneConfig)
 
 	if !codec.ForSystemTenant() {
 		return ret
@@ -531,12 +530,16 @@ func InitialZoneConfigKVs(
 	// Only the system tenant has zone configs over {META, LIVENESS, SYSTEM}
 	// ranges. Additionally, some reporting tables have custom zone configs set,
 	// but only for the system tenant.
-	systemZoneConf := defaultSystemZoneConfig
-	metaRangeZoneConf := protoutil.Clone(defaultSystemZoneConfig).(*zonepb.ZoneConfig)
-	livenessZoneConf := protoutil.Clone(defaultSystemZoneConfig).(*zonepb.ZoneConfig)
+	systemZoneConf := zonepb.ZoneConfig{}
+	systemZoneConf.NumReplicas = proto.Int32(5)
 
+	metaRangeZoneConf := systemZoneConf
 	// .meta zone config entry with a shorter GC time.
 	metaRangeZoneConf.GC.TTLSeconds = 60 * 60 // 1h
+
+	livenessZoneConf := systemZoneConf
+	// Liveness zone config entry with a shorter GC time.
+	livenessZoneConf.GC.TTLSeconds = 10 * 60 // 10m
 
 	// Some reporting tables have shorter GC times.
 	replicationConstraintStatsZoneConf := &zonepb.ZoneConfig{
@@ -549,13 +552,10 @@ func InitialZoneConfigKVs(
 		GC: &zonepb.GCPolicy{TTLSeconds: int32(systemschema.TenantUsageTableTTL.Seconds())},
 	}
 
-	// Liveness zone config entry with a shorter GC time.
-	livenessZoneConf.GC.TTLSeconds = 10 * 60 // 10m
-
-	add(keys.MetaRangesID, metaRangeZoneConf)
-	add(keys.LivenessRangesID, livenessZoneConf)
-	add(keys.SystemRangesID, systemZoneConf)
-	add(keys.SystemDatabaseID, systemZoneConf)
+	add(keys.MetaRangesID, &metaRangeZoneConf)
+	add(keys.LivenessRangesID, &livenessZoneConf)
+	add(keys.SystemRangesID, &systemZoneConf)
+	add(keys.SystemDatabaseID, &systemZoneConf)
 	add(keys.ReplicationConstraintStatsTableID, replicationConstraintStatsZoneConf)
 	add(keys.ReplicationStatsTableID, replicationStatsZoneConf)
 	add(keys.TenantUsageTableID, tenantUsageZoneConf)
@@ -567,10 +567,9 @@ func InitialZoneConfigKVs(
 // zone configurations that should be populated in a newly bootstrapped cluster.
 func addZoneConfigKVsToSchema(
 	target *MetadataSchema,
-	defaultZoneConfig *zonepb.ZoneConfig,
-	defaultSystemZoneConfig *zonepb.ZoneConfig,
+	defaultZoneConfig zonepb.ZoneConfig,
 ) {
-	kvs := InitialZoneConfigKVs(target.codec, defaultZoneConfig, defaultSystemZoneConfig)
+	kvs := InitialZoneConfigKVs(target.codec, defaultZoneConfig)
 	target.otherKV = append(target.otherKV, kvs...)
 }
 
@@ -578,12 +577,11 @@ func addZoneConfigKVsToSchema(
 // System database, its tables and zone configurations.
 func addSystemDatabaseToSchema(
 	target *MetadataSchema,
-	defaultZoneConfig *zonepb.ZoneConfig,
-	defaultSystemZoneConfig *zonepb.ZoneConfig,
+	defaultZoneConfig zonepb.ZoneConfig,
 ) {
 	addSystemDescriptorsToSchema(target)
 	addSplitIDs(target)
-	addZoneConfigKVsToSchema(target, defaultZoneConfig, defaultSystemZoneConfig)
+	addZoneConfigKVsToSchema(target, defaultZoneConfig)
 	addSystemTenantEntry(target)
 }
 
@@ -628,7 +626,7 @@ func addSystemTenantEntry(target *MetadataSchema) {
 }
 
 func testingMinUserDescID(codec keys.SQLCodec) uint32 {
-	ms := MakeMetadataSchema(codec, zonepb.DefaultZoneConfigRef(), zonepb.DefaultSystemZoneConfigRef())
+	ms := MakeMetadataSchema(codec, zonepb.DefaultZoneConfig())
 	return uint32(ms.FirstNonSystemDescriptorID())
 }
 

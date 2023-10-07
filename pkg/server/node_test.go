@@ -73,8 +73,7 @@ func TestBootstrapCluster(t *testing.T) {
 	initCfg := initServerCfg{
 		binaryMinSupportedVersion: clusterversion.TestingBinaryMinSupportedVersion,
 		binaryVersion:             clusterversion.TestingBinaryVersion,
-		defaultSystemZoneConfig:   *zonepb.DefaultZoneConfigRef(),
-		defaultZoneConfig:         *zonepb.DefaultSystemZoneConfigRef(),
+		defaultZoneConfig:         zonepb.DefaultZoneConfig(),
 	}
 	if _, err := bootstrapCluster(ctx, []storage.Engine{e}, initCfg); err != nil {
 		t.Fatal(err)
@@ -105,9 +104,7 @@ func TestBootstrapCluster(t *testing.T) {
 	}
 
 	// Add the initial keys for sql.
-	kvs, tableSplits := GetBootstrapSchema(
-		zonepb.DefaultZoneConfigRef(), zonepb.DefaultSystemZoneConfigRef(),
-	).GetInitialValues()
+	kvs, tableSplits := GetBootstrapSchema(zonepb.DefaultZoneConfig()).GetInitialValues()
 	for _, kv := range kvs {
 		expectedKeys = append(expectedKeys, kv.Key)
 	}
@@ -258,7 +255,6 @@ func TestCorruptedClusterID(t *testing.T) {
 	initCfg := initServerCfg{
 		binaryMinSupportedVersion: clusterversion.TestingBinaryMinSupportedVersion,
 		binaryVersion:             clusterversion.TestingBinaryVersion,
-		defaultSystemZoneConfig:   *zonepb.DefaultZoneConfigRef(),
 		defaultZoneConfig:         *zonepb.DefaultSystemZoneConfigRef(),
 	}
 	if _, err := bootstrapCluster(ctx, []storage.Engine{e}, initCfg); err != nil {
@@ -436,9 +432,8 @@ func TestNodeStatusWritten(t *testing.T) {
 	}
 
 	// Wait for full replication of initial ranges.
-	zcfg := ts.DefaultZoneConfig()
-	szcfg := ts.DefaultSystemZoneConfig()
-	initialRanges, err := ExpectedInitialRangeCount(keys.SystemSQLCodec, &zcfg, &szcfg)
+	zcfg := zonepb.DefaultZoneConfig()
+	initialRanges, err := ExpectedInitialRangeCount(keys.SystemSQLCodec, zcfg)
 	if err != nil {
 		t.Fatal(err)
 	}

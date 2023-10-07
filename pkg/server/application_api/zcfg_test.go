@@ -106,8 +106,8 @@ func TestAdminAPIZoneDetails(t *testing.T) {
 	}
 
 	// Verify zone matches cluster default.
-	verifyDbZone(s.DefaultZoneConfig(), serverpb.ZoneConfigurationLevel_CLUSTER)
-	verifyTblZone(s.DefaultZoneConfig(), serverpb.ZoneConfigurationLevel_CLUSTER)
+	verifyDbZone(zonepb.DefaultZoneConfig(), serverpb.ZoneConfigurationLevel_CLUSTER)
+	verifyTblZone(zonepb.DefaultZoneConfig(), serverpb.ZoneConfigurationLevel_CLUSTER)
 
 	databaseID, err := s.QueryDatabaseID(ctx, username.RootUserName(), "test")
 	if err != nil {

@@ -106,12 +106,12 @@ func TestRemovePartitioningOSS(t *testing.T) {
 			{
 				IndexID:       uint32(tableDesc.GetPrimaryIndexID()),
 				PartitionName: "p1",
-				Config:        s.DefaultZoneConfig(),
+				Config:        zonepb.DefaultZoneConfig(),
 			},
 			{
 				IndexID:       uint32(tableDesc.PublicNonPrimaryIndexes()[0].GetID()),
 				PartitionName: "p2",
-				Config:        s.DefaultZoneConfig(),
+				Config:        zonepb.DefaultZoneConfig(),
 			},
 		},
 	}

@@ -823,9 +823,7 @@ func NewServer(cfg Config, stopper *stop.Stopper) (serverctl.ServerStartupInterf
 			uint64(kvserver.EagerLeaseAcquisitionConcurrency.Get(&cfg.Settings.SV)))
 	})
 
-	defaultSpanConfig := cfg.DefaultZoneConfig.AsSpanConfig()
 	storeCfg := kvserver.StoreConfig{
-		DefaultSpanConfig:            defaultSpanConfig,
 		Settings:                     st,
 		AmbientCtx:                   cfg.AmbientCtx,
 		RaftConfig:                   cfg.RaftConfig,
@@ -851,7 +849,6 @@ func NewServer(cfg Config, stopper *stop.Stopper) (serverctl.ServerStartupInterf
 		KVMemoryMonitor:              kvMemoryMonitor,
 		RangefeedBudgetFactory:       rangeReedBudgetFactory,
 		SharedStorageEnabled:         cfg.SharedStorage != "",
-		SystemConfigProvider:         systemConfigWatcher,
 		SpanConfigSubscriber:         spanConfig.subscriber,
 		SnapshotApplyLimit:           cfg.SnapshotApplyLimit,
 		SnapshotSendLimit:            cfg.SnapshotSendLimit,

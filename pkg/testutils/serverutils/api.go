@@ -19,8 +19,6 @@ import (
 	"net/http"
 
 	"github.com/cockroachdb/cockroach/pkg/base"
-	"github.com/cockroachdb/cockroach/pkg/config"
-	"github.com/cockroachdb/cockroach/pkg/config/zonepb"
 	"github.com/cockroachdb/cockroach/pkg/keys"
 	"github.com/cockroachdb/cockroach/pkg/kv"
 	"github.com/cockroachdb/cockroach/pkg/kv/kvprober"
@@ -376,9 +374,6 @@ type ApplicationLayerInterface interface {
 	// DrainClients shuts down client connections.
 	DrainClients(ctx context.Context) error
 
-	// SystemConfigProvider provides access to the system config.
-	SystemConfigProvider() config.SystemConfigProvider
-
 	// MustGetSQLCounter returns the value of a counter metric from the server's
 	// SQL Executor. Runs in O(# of metrics) time, which is fine for test code.
 	MustGetSQLCounter(name string) int64
@@ -433,10 +428,6 @@ type ApplicationLayerInterface interface {
 	ForceTableGC(
 		ctx context.Context, database, table string, timestamp hlc.Timestamp,
 	) error
-
-	// DefaultZoneConfig is a convenience function that accesses
-	// .SystemConfigProvider().GetSystemConfig().DefaultZoneConfig.
-	DefaultZoneConfig() zonepb.ZoneConfig
 
 	// SetReady changes the SQL readiness.
 	SetReady(bool)
@@ -663,12 +654,6 @@ type StorageLayerInterface interface {
 
 	// TsDB returns the ts.DB instance used by the TestServer.
 	TsDB() interface{}
-
-	// DefaultSystemZoneConfig returns the internal system zone config
-	// for the server.
-	// Note: most tests should instead use the .DefaultZoneConfig() method
-	// on ApplicationLayerInterface.
-	DefaultSystemZoneConfig() zonepb.ZoneConfig
 
 	// DecommissionPreCheck is used to evaluate if nodes are ready for decommission.
 	DecommissionPreCheck(

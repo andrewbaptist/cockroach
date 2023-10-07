@@ -58,10 +58,9 @@ func TestSupportedReleases(t *testing.T) {
 	for k := range initialValuesFactoryByKey {
 		actual[clusterversion.ByKey(k)] = struct{}{}
 		opts := InitialValuesOpts{
-			DefaultZoneConfig:       zonepb.DefaultZoneConfigRef(),
-			DefaultSystemZoneConfig: zonepb.DefaultZoneConfigRef(),
-			OverrideKey:             k,
-			Codec:                   keys.SystemSQLCodec,
+			DefaultZoneConfig: zonepb.DefaultZoneConfig(),
+			OverrideKey:       k,
+			Codec:             keys.SystemSQLCodec,
 		}
 		_, _, err := opts.GenerateInitialValues()
 		require.NoErrorf(t, err, "error generating initial values for system codec in version %s", k)

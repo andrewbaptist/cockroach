@@ -26,8 +26,6 @@ import (
 
 	"github.com/cockroachdb/cockroach/pkg/base"
 	"github.com/cockroachdb/cockroach/pkg/clusterversion"
-	"github.com/cockroachdb/cockroach/pkg/config"
-	"github.com/cockroachdb/cockroach/pkg/config/zonepb"
 	"github.com/cockroachdb/cockroach/pkg/gossip"
 	"github.com/cockroachdb/cockroach/pkg/keys"
 	"github.com/cockroachdb/cockroach/pkg/kv"
@@ -312,9 +310,7 @@ func testStoreConfig(clock *hlc.Clock, version roachpb.Version) StoreConfig {
 	}
 	st := cluster.MakeTestingClusterSettingsWithVersions(version, version, true)
 	tracer := tracing.NewTracerWithOpt(context.TODO(), tracing.WithClusterSettings(&st.SV))
-	defaultSpanConfig := zonepb.DefaultZoneConfigRef().AsSpanConfig()
 	sc := StoreConfig{
-		DefaultSpanConfig:           defaultSpanConfig,
 		Settings:                    st,
 		AmbientCtx:                  log.MakeTestingAmbientContext(tracer),
 		Clock:                       clock,
@@ -324,12 +320,6 @@ func testStoreConfig(clock *hlc.Clock, version roachpb.Version) StoreConfig {
 		ProtectedTimestampReader:    spanconfig.EmptyProtectedTSReader(clock),
 		SnapshotSendLimit:           DefaultSnapshotSendLimit,
 		SnapshotApplyLimit:          DefaultSnapshotApplyLimit,
-
-		// Use a constant empty system config, which mirrors the previously
-		// existing logic to install an empty system config in gossip.
-		SystemConfigProvider: config.NewConstantSystemConfigProvider(
-			config.NewSystemConfig(zonepb.DefaultSystemZoneConfigRef()),
-		),
 	}
 	sc.TestingKnobs.TenantRateKnobs.Authorizer = tenantcapabilitiesauthorizer.NewAllowEverythingAuthorizer()
 
@@ -1106,7 +1096,6 @@ type StoreConfig struct {
 	AmbientCtx log.AmbientContext
 	base.RaftConfig
 
-	DefaultSpanConfig    roachpb.SpanConfig
 	Settings             *cluster.Settings
 	Clock                *hlc.Clock
 	Gossip               *gossip.Gossip
@@ -1214,12 +1203,6 @@ type StoreConfig struct {
 	KVMemoryMonitor        *mon.BytesMonitor
 	RangefeedBudgetFactory *rangefeed.BudgetFactory
 
-	// SpanConfigsDisabled determines whether we're able to use the span configs
-	// infrastructure or not.
-	//
-	// TODO(baptist): Don't add any future uses of this. Will be removed soon.
-	SpanConfigsDisabled bool
-
 	// Used to subscribe to span configuration changes, keeping up-to-date a
 	// data structure useful for retrieving span configs.
 	SpanConfigSubscriber spanconfig.KVSubscriber
@@ -1241,13 +1224,6 @@ type StoreConfig struct {
 	// that's then used to adjust various admission control components (like how
 	// many CPU tokens are granted to elastic work like backups).
 	SchedulerLatencyListener admission.SchedulerLatencyListener
-
-	// SystemConfigProvider is used to drive replication decision-making in the
-	// mixed-version state, before the span configuration infrastructure has been
-	// bootstrapped.
-	//
-	// TODO(ajwerner): Remove in 22.2.
-	SystemConfigProvider config.SystemConfigProvider
 
 	// RangeLogWriter is used to write entries to the system.rangelog table.
 	RangeLogWriter RangeLogWriter
@@ -2183,22 +2159,6 @@ func (s *Store) Start(ctx context.Context, stopper *stop.Stopper) error {
 		s.cfg.NodeLiveness.RegisterCallback(s.nodeIsLiveCallback)
 	}
 
-	// SystemConfigProvider can be nil during some tests.
-	if scp := s.cfg.SystemConfigProvider; scp != nil {
-		systemCfgUpdateC, _ := scp.RegisterSystemConfigChannel()
-		_ = s.stopper.RunAsyncTask(ctx, "syscfg-listener", func(context.Context) {
-			for {
-				select {
-				case <-systemCfgUpdateC:
-					cfg := scp.GetSystemConfig()
-					s.systemGossipUpdate(cfg)
-				case <-s.stopper.ShouldQuiesce():
-					return
-				}
-			}
-		})
-	}
-
 	// Gossip is only ever nil while bootstrapping a cluster and
 	// in unittests.
 	if s.cfg.Gossip != nil {
@@ -2224,16 +2184,14 @@ func (s *Store) Start(ctx context.Context, stopper *stop.Stopper) error {
 		})
 	}
 
-	if !s.cfg.SpanConfigsDisabled {
-		s.cfg.SpanConfigSubscriber.Subscribe(func(ctx context.Context, update roachpb.Span) {
-			s.onSpanConfigUpdate(ctx, update)
-		})
+	s.cfg.SpanConfigSubscriber.Subscribe(func(ctx context.Context, update roachpb.Span) {
+		s.onSpanConfigUpdate(ctx, update)
+	})
 
-		// We also want to do it when the fallback config setting is changed.
-		spanconfigstore.FallbackConfigOverride.SetOnChange(&s.ClusterSettings().SV, func(ctx context.Context) {
-			s.applyAllFromSpanConfigStore(ctx)
-		})
-	}
+	// We also want to do it when the fallback config setting is changed.
+	spanconfigstore.FallbackConfigOverride.SetOnChange(&s.ClusterSettings().SV, func(ctx context.Context) {
+		s.applyAllFromSpanConfigStore(ctx)
+	})
 
 	// Start Raft processing goroutines.
 	s.cfg.Transport.ListenIncomingRaftMessages(s.StoreID(), s)
@@ -2274,14 +2232,6 @@ func (s *Store) GetConfReader(ctx context.Context) (spanconfig.StoreReader, erro
 		if err := s.cfg.TestingKnobs.ConfReaderInterceptor(); err != nil {
 			return nil, err
 		}
-	}
-
-	if s.cfg.SpanConfigsDisabled {
-		sysCfg := s.cfg.SystemConfigProvider.GetSystemConfig()
-		if sysCfg == nil {
-			return nil, errSpanConfigsUnavailable
-		}
-		return sysCfg, nil
 	}
 
 	if s.cfg.SpanConfigSubscriber.LastUpdated().IsEmpty() {
@@ -2482,10 +2432,6 @@ func (s *Store) GetSpanConfigForKey(
 		return nil, errSpanConfigsUnavailable
 	}
 
-	// TODO(baptist): Tests should correctly set the span configs.
-	if s.cfg.SpanConfigsDisabled {
-		return &s.cfg.DefaultSpanConfig, nil
-	}
 	if s.cfg.TestingKnobs.ConfReaderInterceptor != nil {
 		if err := s.cfg.TestingKnobs.ConfReaderInterceptor(); err != nil {
 			return nil, err
@@ -3766,10 +3712,6 @@ func (s *Store) PurgeOutdatedReplicas(ctx context.Context, version roachpb.Versi
 // WaitForSpanConfigSubscription waits until the store is wholly subscribed to
 // the global span configurations state.
 func (s *Store) WaitForSpanConfigSubscription(ctx context.Context) error {
-	if s.cfg.SpanConfigsDisabled {
-		return nil // nothing to do here
-	}
-
 	for r := retry.StartWithCtx(ctx, base.DefaultRetryOptions()); r.Next(); {
 		if !s.cfg.SpanConfigSubscriber.LastUpdated().IsEmpty() {
 			return nil

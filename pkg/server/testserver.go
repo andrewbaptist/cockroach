@@ -191,9 +191,6 @@ func makeTestConfigFromParams(params base.TestServerArgs) Config {
 		if zoneConfig := params.Knobs.Server.(*TestingKnobs).DefaultZoneConfigOverride; zoneConfig != nil {
 			cfg.DefaultZoneConfig = *zoneConfig
 		}
-		if systemZoneConfig := params.Knobs.Server.(*TestingKnobs).DefaultSystemZoneConfigOverride; systemZoneConfig != nil {
-			cfg.DefaultSystemZoneConfig = *systemZoneConfig
-		}
 	}
 	if params.ScanInterval != 0 {
 		cfg.ScanInterval = params.ScanInterval
@@ -1024,11 +1021,6 @@ func (t *testTenant) SpanConfigSQLWatcher() interface{} {
 	return t.sql.spanconfigSQLWatcher
 }
 
-// SystemConfigProvider is part of the serverutils.ApplicationLayerInterface.
-func (t *testTenant) SystemConfigProvider() config.SystemConfigProvider {
-	return t.sql.systemConfigWatcher
-}
-
 // DrainClients exports the drainClients() method for use by tests.
 func (t *testTenant) DrainClients(ctx context.Context) error {
 	return t.drain.drainClients(ctx, nil /* reporter */)
@@ -1082,7 +1074,7 @@ func (t *testTenant) ForceTableGC(
 
 // DefaultZoneConfig is part of the serverutils.ApplicationLayerInterface.
 func (t *testTenant) DefaultZoneConfig() zonepb.ZoneConfig {
-	return *t.SystemConfigProvider().GetSystemConfig().DefaultZoneConfig
+	return zonepb.DefaultZoneConfig()
 }
 
 // SettingsWatcher is part of the serverutils.ApplicationLayerInterface.
@@ -1675,8 +1667,7 @@ func (ts *testServer) StartTenant(
 func (ts *testServer) ExpectedInitialRangeCount() (int, error) {
 	return ExpectedInitialRangeCount(
 		ts.sqlServer.execCfg.Codec,
-		&ts.cfg.DefaultZoneConfig,
-		&ts.cfg.DefaultSystemZoneConfig,
+		ts.cfg.DefaultZoneConfig,
 	)
 }
 
@@ -1684,10 +1675,9 @@ func (ts *testServer) ExpectedInitialRangeCount() (int, error) {
 // be on the server after bootstrap.
 func ExpectedInitialRangeCount(
 	codec keys.SQLCodec,
-	defaultZoneConfig *zonepb.ZoneConfig,
-	defaultSystemZoneConfig *zonepb.ZoneConfig,
+	defaultZoneConfig zonepb.ZoneConfig,
 ) (int, error) {
-	_, splits := bootstrap.MakeMetadataSchema(codec, defaultZoneConfig, defaultSystemZoneConfig).GetInitialValues()
+	_, splits := bootstrap.MakeMetadataSchema(codec, defaultZoneConfig).GetInitialValues()
 	// N splits means N+1 ranges.
 	return len(config.StaticSplits()) + len(splits) + 1, nil
 }
@@ -2104,16 +2094,6 @@ func internalForceTableGC(
 	return pErr.GoError()
 }
 
-// DefaultZoneConfig is part of the serverutils.ApplicationLayerInterface.
-func (ts *testServer) DefaultZoneConfig() zonepb.ZoneConfig {
-	return *ts.SystemConfigProvider().GetSystemConfig().DefaultZoneConfig
-}
-
-// DefaultSystemZoneConfig is part of the serverutils.StorageLayerInterface.
-func (ts *testServer) DefaultSystemZoneConfig() zonepb.ZoneConfig {
-	return ts.topLevelServer.cfg.DefaultSystemZoneConfig
-}
-
 // ScratchRange is part of the serverutils.StorageLayerInterface.
 func (ts *testServer) ScratchRange() (roachpb.Key, error) {
 	_, desc, err := ts.ScratchRangeEx()
@@ -2172,11 +2152,6 @@ func (ts *testServer) SystemTableIDResolver() interface{} {
 // SpanConfigKVSubscriber is part of the serverutils.StorageLayerInterface.
 func (ts *testServer) SpanConfigKVSubscriber() interface{} {
 	return ts.node.storeCfg.SpanConfigSubscriber
-}
-
-// SystemConfigProvider is part of the serverutils.ApplicationLayerInterface.
-func (ts *testServer) SystemConfigProvider() config.SystemConfigProvider {
-	return ts.node.storeCfg.SystemConfigProvider
 }
 
 // KVFlowController is part of the serverutils.StorageLayerInterface.

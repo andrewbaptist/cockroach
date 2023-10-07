@@ -2006,12 +2006,14 @@ func (p *planner) validateZoneConfigForMultiRegionDatabase(
 	currentZoneConfig *zonepb.ZoneConfig,
 	zoneConfigForMultiRegionValidator zoneConfigForMultiRegionValidator,
 ) error {
+	x := zonepb.DefaultZoneConfig()
+	x.NumReplicas = proto.Int32(5)
 	if currentZoneConfig == nil ||
 		// If this is the system database, and it has the configuration we inject
 		// for the system database at startup, we should treat it as though it has
 		// no zone configs set.
 		(dbDesc.GetID() == keys.SystemDatabaseID &&
-			currentZoneConfig.Equal(zonepb.DefaultSystemZoneConfigRef())) {
+			currentZoneConfig.Equal(x)) {
 		currentZoneConfig = zonepb.NewZoneConfig()
 	}
 
