@@ -14,11 +14,14 @@ package spanconfigstore
 
 import (
 	"bytes"
+	"context"
 	"sort"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"unsafe"
+
+	"github.com/cockroachdb/cockroach/pkg/util/log"
 )
 
 // nilT is a nil instance of the Template type.
@@ -697,6 +700,7 @@ func (t *btree) Clone() btree {
 
 // Delete removes an item equal to the passed in item from the tree.
 func (t *btree) Delete(item *entry) {
+	log.Infof(context.TODO(), "Delete %+v", item)
 	if t.root == nil || t.root.count == 0 {
 		return
 	}

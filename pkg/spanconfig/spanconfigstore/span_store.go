@@ -251,6 +251,8 @@ func (s *spanConfigStore) apply(
 		return nil, nil, err
 	}
 
+	log.Infof(ctx, "Update is %v", updates)
+
 	sorted := make([]spanconfig.Update, len(updates))
 	copy(sorted, updates)
 	sort.Slice(sorted, func(i, j int) bool {
@@ -267,6 +269,7 @@ func (s *spanConfigStore) apply(
 	for i := range entriesToDelete {
 		entry := &entriesToDelete[i]
 		if !dryrun {
+			log.Infof(ctx, "%p Deleting %v, %v", s, entry.span, entry.canonical)
 			s.btree.Delete(entry)
 			s.interner.remove(ctx, entry.canonical)
 		}
@@ -277,6 +280,7 @@ func (s *spanConfigStore) apply(
 	for i := range entriesToAdd {
 		entry := &entriesToAdd[i]
 		if !dryrun {
+			log.Infof(ctx, "%p Setting %v, %v", s, entry.span, entry.canonical)
 			s.btree.Set(entry)
 		}
 		added[i] = *entry
