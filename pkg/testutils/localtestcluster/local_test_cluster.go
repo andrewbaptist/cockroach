@@ -199,7 +199,7 @@ func (ltc *LocalTestCluster) Start(t testing.TB, initFactory InitFactoryFn) {
 		Stopper:                 ltc.stopper,
 		Clock:                   cfg.Clock,
 		Storage:                 liveness.NewKVStorage(cfg.DB),
-		Gossip:                  cfg.Gossip,
+		Cache:                   liveness.NewCache(cfg.Gossip, cfg.Clock),
 		LivenessThreshold:       active,
 		RenewalDuration:         renewal,
 		Settings:                cfg.Settings,

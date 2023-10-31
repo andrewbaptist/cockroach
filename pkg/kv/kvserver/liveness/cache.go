@@ -37,7 +37,7 @@ type Gossip interface {
 var livenessRegex = gossip.MakePrefixPattern(gossip.KeyNodeLivenessPrefix)
 var storeRegex = gossip.MakePrefixPattern(gossip.KeyStoreDescPrefix)
 
-// cache stores updates to both Liveness records and the store descriptor map.
+// Cache stores updates to both Liveness records and the store descriptor map.
 // It doesn't store the entire StoreDescriptor, only the time when it is
 // updated. The StoreDescriptor is sent directly from nodes so doesn't require
 // the liveness leaseholder to be available.
@@ -46,11 +46,10 @@ var storeRegex = gossip.MakePrefixPattern(gossip.KeyStoreDescPrefix)
 // checking liveness on the liveness record, then the isLive method should
 // change to take this into account. Only epoch leases will use the liveness
 // timestamp directly.
-type cache struct {
-	gossip                Gossip
-	clock                 *hlc.Clock
-	notifyLivenessChanged func(old, new livenesspb.Liveness)
-	mu                    struct {
+type Cache struct {
+	gossip Gossip
+	clock  *hlc.Clock
+	mu     struct {
 		syncutil.RWMutex
 		// lastNodeUpdate stores timestamps of StoreDescriptor updates in Gossip.
 		// This is tracking based on NodeID, so any store that is updated on this
@@ -58,20 +57,17 @@ type cache struct {
 		// "1 stalled store" on a node from a liveness perspective.
 		lastNodeUpdate map[roachpb.NodeID]UpdateInfo
 		// nodes stores liveness records read from Gossip
-		nodes map[roachpb.NodeID]Record
+		nodes                 map[roachpb.NodeID]Record
+		notifyLivenessChanged func(old, new livenesspb.Liveness)
 	}
 }
 
-func newCache(
-	g Gossip, clock *hlc.Clock, cbFn func(livenesspb.Liveness, livenesspb.Liveness),
-) *cache {
-	c := cache{}
+func NewCache(g Gossip, clock *hlc.Clock) *Cache {
+	c := Cache{}
 	c.gossip = g
 	c.clock = clock
 	c.mu.nodes = make(map[roachpb.NodeID]Record)
 	c.mu.lastNodeUpdate = make(map[roachpb.NodeID]UpdateInfo)
-
-	c.notifyLivenessChanged = cbFn
 
 	// Gossip is nil in some tests.
 	if c.gossip != nil {
@@ -90,15 +86,21 @@ func newCache(
 	return &c
 }
 
+func (c *Cache) setLivenessChangedFn(cbFn func(old, new livenesspb.Liveness)) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.mu.notifyLivenessChanged = cbFn
+}
+
 // selfID returns the ID for this node according to Gossip. This will be 0
 // until the node has joined the cluster.
-func (c *cache) selfID() roachpb.NodeID {
+func (c *Cache) selfID() roachpb.NodeID {
 	return c.gossip.GetNodeID()
 }
 
 // livenessGossipUpdate is the gossip callback used to keep the
 // in-memory liveness info up to date.
-func (c *cache) livenessGossipUpdate(_ string, content roachpb.Value) {
+func (c *Cache) livenessGossipUpdate(_ string, content roachpb.Value) {
 	ctx := context.TODO()
 	var liveness livenesspb.Liveness
 	if err := content.GetProto(&liveness); err != nil {
@@ -110,7 +112,7 @@ func (c *cache) livenessGossipUpdate(_ string, content roachpb.Value) {
 }
 
 // storeGossipUpdate is the Gossip callback used to keep the nodeDescMap up to date.
-func (c *cache) storeGossipUpdate(_ string, content roachpb.Value) {
+func (c *Cache) storeGossipUpdate(_ string, content roachpb.Value) {
 	ctx := context.TODO()
 	var storeDesc roachpb.StoreDescriptor
 	if err := content.GetProto(&storeDesc); err != nil {
@@ -134,13 +136,13 @@ func (c *cache) storeGossipUpdate(_ string, content roachpb.Value) {
 
 // maybeUpdate replaces the liveness (if it appears newer) and invokes the
 // registered callbacks if the node became live in the process.
-func (c *cache) maybeUpdate(ctx context.Context, newLivenessRec Record) {
+func (c *Cache) maybeUpdate(ctx context.Context, newLivenessRec Record) {
 	if newLivenessRec.Liveness == (livenesspb.Liveness{}) {
 		log.Fatal(ctx, "invalid new liveness record; found to be empty")
 	}
 
 	if newLivenessRec.NodeID == 0 {
-		log.Fatal(ctx, "attempt to cache liveness record with nid 0")
+		log.Fatal(ctx, "attempt to Cache liveness record with nid 0")
 	}
 
 	shouldReplace := true
@@ -157,10 +159,11 @@ func (c *cache) maybeUpdate(ctx context.Context, newLivenessRec Record) {
 	if shouldReplace {
 		c.mu.nodes[newLivenessRec.NodeID] = newLivenessRec
 	}
+	notifyFn := c.mu.notifyLivenessChanged
 	c.mu.Unlock()
 
 	if shouldReplace {
-		c.notifyLivenessChanged(oldLivenessRec.Liveness, newLivenessRec.Liveness)
+		notifyFn(oldLivenessRec.Liveness, newLivenessRec.Liveness)
 	}
 }
 
@@ -194,7 +197,7 @@ func livenessChanged(old, new Record) bool {
 
 // Self returns the raw, encoded value that the database has for this liveness
 // record in addition to the decoded liveness proto.
-func (c *cache) Self() (_ Record, ok bool) {
+func (c *Cache) Self() (_ Record, ok bool) {
 	return c.GetLiveness(c.selfID())
 }
 
@@ -203,7 +206,7 @@ func (c *cache) Self() (_ Record, ok bool) {
 // node not existing), we surface that to the caller. The record returned also
 // includes the raw, encoded value that the database has for this liveness
 // record in addition to the decoded liveness proto.
-func (c *cache) GetLiveness(nodeID roachpb.NodeID) (_ Record, ok bool) {
+func (c *Cache) GetLiveness(nodeID roachpb.NodeID) (_ Record, ok bool) {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 	if l, ok := c.mu.nodes[nodeID]; ok {
@@ -215,7 +218,7 @@ func (c *cache) GetLiveness(nodeID roachpb.NodeID) (_ Record, ok bool) {
 // GetIsLiveMap returns a map of nodeID to boolean liveness status of
 // each node. This excludes nodes that were removed completely (dead +
 // decommissioned)
-func (c *cache) GetIsLiveMap() livenesspb.IsLiveMap {
+func (c *Cache) GetIsLiveMap() livenesspb.IsLiveMap {
 	lMap := livenesspb.IsLiveMap{}
 	c.mu.RLock()
 	defer c.mu.RUnlock()
@@ -235,10 +238,10 @@ func (c *cache) GetIsLiveMap() livenesspb.IsLiveMap {
 }
 
 // getAllLivenessEntries returns a copy of all the entries currently in the
-// liveness cache. Most places should avoid calling this method and instead just
+// liveness Cache. Most places should avoid calling this method and instead just
 // get the entry they need. In a few places in the code it is more efficient to
 // get the entries once and keep the map in memory for later iteration.
-func (c *cache) getAllLivenessEntries() []livenesspb.Liveness {
+func (c *Cache) getAllLivenessEntries() []livenesspb.Liveness {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 	cpy := make([]livenesspb.Liveness, 0, len(c.mu.nodes))
@@ -249,7 +252,7 @@ func (c *cache) getAllLivenessEntries() []livenesspb.Liveness {
 }
 
 // LastDescriptorUpdate returns when this node last had an update.
-func (c *cache) LastDescriptorUpdate(nodeID roachpb.NodeID) (UpdateInfo, bool) {
+func (c *Cache) LastDescriptorUpdate(nodeID roachpb.NodeID) (UpdateInfo, bool) {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 	if l, ok := c.mu.lastNodeUpdate[nodeID]; ok {
@@ -263,7 +266,7 @@ func (c *cache) LastDescriptorUpdate(nodeID roachpb.NodeID) (UpdateInfo, bool) {
 // updated for longer than the interval. If they become stale, they remain stale
 // for the suspect interval to prevent flapping nodes from impacting system
 // stability.
-func (c *cache) CheckForStaleEntries(interval time.Duration) {
+func (c *Cache) CheckForStaleEntries(interval time.Duration) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	now := c.clock.Now()

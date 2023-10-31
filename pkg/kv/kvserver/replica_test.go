@@ -1088,6 +1088,7 @@ func TestReplicaLeaseCounters(t *testing.T) {
 		Stopper:           stopper,
 		Settings:          cfg.Settings,
 		Clock:             cfg.Clock,
+		Cache:             liveness.NewCache(cfg.Gossip, cfg.Clock),
 		LivenessThreshold: nlActive,
 		RenewalDuration:   nlRenewal,
 		Engines:           []storage.Engine{},

@@ -251,7 +251,7 @@ type NodeLiveness struct {
 	clock             *hlc.Clock
 	storage           Storage
 	livenessThreshold time.Duration
-	cache             *cache
+	cache             *Cache
 	renewalDuration   time.Duration
 	selfSem           chan struct{}
 	st                *cluster.Settings
@@ -306,7 +306,6 @@ type NodeLivenessOptions struct {
 	AmbientCtx              log.AmbientContext
 	Stopper                 *stop.Stopper
 	Settings                *cluster.Settings
-	Gossip                  Gossip
 	Clock                   *hlc.Clock
 	Storage                 Storage
 	LivenessThreshold       time.Duration
@@ -323,6 +322,7 @@ type NodeLivenessOptions struct {
 	Engines               []diskStorage.Engine
 	OnSelfHeartbeat       HeartbeatCallback
 	NodeDialer            *nodedialer.Dialer
+	Cache                 *Cache
 }
 
 // NewNodeLiveness returns a new instance of NodeLiveness configured
@@ -345,6 +345,7 @@ func NewNodeLiveness(opts NodeLivenessOptions) *NodeLiveness {
 		engines:               opts.Engines,
 		onSelfHeartbeat:       opts.OnSelfHeartbeat,
 		nodeDialer:            opts.NodeDialer,
+		cache:                 opts.Cache,
 	}
 	nl.metrics = Metrics{
 		LiveNodes:          metric.NewFunctionalGauge(metaLiveNodes, nl.numLiveNodes),
@@ -359,7 +360,7 @@ func NewNodeLiveness(opts NodeLivenessOptions) *NodeLiveness {
 			BucketConfig: metric.IOLatencyBuckets,
 		}),
 	}
-	nl.cache = newCache(opts.Gossip, opts.Clock, nl.cacheUpdated)
+	nl.cache.setLivenessChangedFn(nl.cacheUpdated)
 	nl.heartbeatToken <- struct{}{}
 
 	return nl

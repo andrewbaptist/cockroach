@@ -320,6 +320,8 @@ func NewServer(cfg Config, stopper *stop.Stopper) (serverctl.ServerStartupInterf
 		cfg.Locality,
 	)
 
+	livenessCache := liveness.NewCache(g, clock)
+
 	tenantCapabilitiesTestingKnobs, _ := cfg.TestingKnobs.TenantCapabilitiesTestingKnobs.(*tenantcapabilities.TestingKnobs)
 	authorizer := tenantcapabilitiesauthorizer.New(cfg.Settings, tenantCapabilitiesTestingKnobs)
 	rpcCtxOpts := rpc.ServerContextOptionsFromBaseConfig(cfg.BaseConfig.Config)
@@ -505,7 +507,6 @@ func NewServer(cfg Config, stopper *stop.Stopper) (serverctl.ServerStartupInterf
 		Stopper:                 stopper,
 		Clock:                   clock,
 		Storage:                 liveness.NewKVStorage(db),
-		Gossip:                  g,
 		LivenessThreshold:       nlActive,
 		RenewalDuration:         nlRenewal,
 		Settings:                st,
@@ -536,6 +537,7 @@ func NewServer(cfg Config, stopper *stop.Stopper) (serverctl.ServerStartupInterf
 			}
 		},
 		NodeDialer: kvNodeDialer,
+		Cache:      livenessCache,
 	})
 
 	nodeRegistry.AddMetricStruct(nodeLiveness.Metrics())
