@@ -123,6 +123,8 @@ type TestingKnobs struct {
 	// coalescing system database ranges for the host tenant.
 	StoreIgnoreCoalesceAdjacentExceptions bool
 
+
+	// TODO(baptist): Remove this by injecting the fallback config directly.
 	// OverrideFallbackConf, if set, allows tests to override fields in the
 	// fallback config that will be applied to the span.
 	OverrideFallbackConf func(roachpb.SpanConfig) roachpb.SpanConfig
