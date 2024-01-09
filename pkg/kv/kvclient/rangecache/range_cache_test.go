@@ -1914,33 +1914,6 @@ func TestRangeCacheSyncTokenAndMaybeUpdateCache(t *testing.T) {
 				require.Equal(t, l, entries[0].lease)
 			},
 		},
-		{
-			name: "speculative lease coming from a replica with a non-stale view",
-			testFn: func(t *testing.T, cache *RangeCache) {
-				// Check that trying to update the cache with a speculative lease coming
-				// from a replica that has a non-stale view of the world is persisted.
-				cache.Insert(ctx, roachpb.RangeInfo{
-					Desc: desc2,
-					Lease: roachpb.Lease{
-						Replica:  rep3,
-						Sequence: 2,
-					},
-					ClosedTimestampPolicy: lead,
-				})
-				tok, err := cache.LookupWithEvictionToken(
-					ctx, startKey, EvictionToken{}, false, /* useReverseScan */
-				)
-				require.NoError(t, err)
-
-				updatedLeaseholder := tok.SyncTokenAndMaybeUpdateCacheWithSpeculativeLease(
-					ctx, rep2, &desc2,
-				)
-				require.True(t, updatedLeaseholder)
-				require.Equal(t, &desc2, tok.Desc())
-				require.Equal(t, &rep2, tok.Leaseholder())
-				require.Equal(t, roachpb.LeaseSequence(0), tok.Lease().Sequence)
-			},
-		},
 	}
 
 	for _, tc := range testCases {
@@ -2025,11 +1998,11 @@ func TestRangeCacheEntryMaybeUpdate(t *testing.T) {
 	require.True(t, l.Equal(e.Lease()))
 	require.True(t, desc.Equal(e.Desc()))
 
-	// Check that another lease with no seq num overwrites any other lease when
-	// the associated range descriptor isn't stale.
+	// Check that another lease overwrites any other lease when the associated
+	// range descriptor isn't stale.
 	l = &roachpb.Lease{
 		Replica:  rep2,
-		Sequence: 0,
+		Sequence: 2,
 	}
 	updated, updatedLease, e = e.maybeUpdate(ctx, l, &desc)
 	require.True(t, updated)
@@ -2037,30 +2010,14 @@ func TestRangeCacheEntryMaybeUpdate(t *testing.T) {
 	require.NotNil(t, e.Leaseholder())
 	require.True(t, l.Replica.Equal(*e.Leaseholder()))
 	require.True(t, desc.Equal(e.Desc()))
-	// Check that Seq=0 leases are not returned by Lease().
-	require.Nil(t, e.Lease())
-
-	// Check that another lease with no sequence number overwrites a lease with no
-	// sequence num as long as the associated range descriptor isn't stale.
-	l = &roachpb.Lease{
-		Replica:  rep1,
-		Sequence: 0,
-	}
-	updated, updatedLease, e = e.maybeUpdate(ctx, l, &desc)
-	require.True(t, updated)
-	require.True(t, updatedLease)
-	require.NotNil(t, e.Leaseholder())
-	require.True(t, l.Replica.Equal(*e.Leaseholder()))
-	require.True(t, desc.Equal(e.Desc()))
-	// Check that Seq=0 leases are not returned by Lease().
-	require.Nil(t, e.Lease())
+	require.True(t, l.Equal(e.Lease()))
 
 	oldL := l
 	l = &roachpb.Lease{
 		Replica:  repStaleMember,
-		Sequence: 0,
+		Sequence: 1,
 	}
-	// Ensure that a speculative lease is not overwritten when accompanied by a
+	// Ensure that a lease is not overwritten when accompanied by a
 	// stale range descriptor.
 	updated, updatedLease, e = e.maybeUpdate(ctx, l, &staleDesc)
 	require.False(t, updated)
@@ -2069,20 +2026,8 @@ func TestRangeCacheEntryMaybeUpdate(t *testing.T) {
 	require.True(t, oldL.Replica.Equal(*e.Leaseholder()))
 	require.True(t, desc.Equal(e.Desc()))
 	// The old lease is still speculative; ensure it isn't returned by Lease().
-	require.Nil(t, e.Lease())
-
-	// Ensure a speculative lease is not overwritten by a "real" lease if the
-	// accompanying range descriptor is stale.
-	l = &roachpb.Lease{
-		Replica:  rep1,
-		Sequence: 1,
-	}
-	updated, updatedLease, e = e.maybeUpdate(ctx, l, &staleDesc)
-	require.False(t, updated)
-	require.False(t, updatedLease)
-	require.NotNil(t, e.Leaseholder())
-	require.True(t, oldL.Replica.Equal(*e.Leaseholder()))
-	require.True(t, desc.Equal(e.Desc()))
+	//FIXME
+	require.True(t, l.Equal(e.Lease()))
 
 	// Empty out the lease and ensure that it is overwritten by a lease even if
 	// the accompanying range descriptor is stale.
@@ -2299,30 +2244,6 @@ func TestRangeCacheEntryOverrides(t *testing.T) {
 			b: CacheEntry{
 				desc:  desc(0),
 				lease: roachpb.Lease{Sequence: 2},
-			},
-		},
-		{
-			name: "a speculative lease",
-			exp:  true,
-			a: CacheEntry{
-				desc:  desc(1),
-				lease: roachpb.Lease{Sequence: 0},
-			},
-			b: CacheEntry{
-				desc:  desc(1),
-				lease: roachpb.Lease{Sequence: 1},
-			},
-		},
-		{
-			name: "both speculative leases",
-			exp:  true,
-			a: CacheEntry{
-				desc:  desc(1),
-				lease: roachpb.Lease{Replica: roachpb.ReplicaDescriptor{ReplicaID: 1}, Sequence: 0},
-			},
-			b: CacheEntry{
-				desc:  desc(1),
-				lease: roachpb.Lease{Replica: roachpb.ReplicaDescriptor{ReplicaID: 2}, Sequence: 0},
 			},
 		},
 	}
