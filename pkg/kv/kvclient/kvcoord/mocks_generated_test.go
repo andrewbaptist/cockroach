@@ -51,20 +51,6 @@ func (mr *MockTransportMockRecorder) IsExhausted() *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "IsExhausted", reflect.TypeOf((*MockTransport)(nil).IsExhausted))
 }
 
-// MoveToFront mocks base method.
-func (m *MockTransport) MoveToFront(arg0 roachpb.ReplicaDescriptor) bool {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "MoveToFront", arg0)
-	ret0, _ := ret[0].(bool)
-	return ret0
-}
-
-// MoveToFront indicates an expected call of MoveToFront.
-func (mr *MockTransportMockRecorder) MoveToFront(arg0 interface{}) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "MoveToFront", reflect.TypeOf((*MockTransport)(nil).MoveToFront), arg0)
-}
-
 // NextInternalClient mocks base method.
 func (m *MockTransport) NextInternalClient(arg0 context.Context) (rpc.RestrictedInternalClient, error) {
 	m.ctrl.T.Helper()
@@ -104,6 +90,18 @@ func (m *MockTransport) Release() {
 func (mr *MockTransportMockRecorder) Release() *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Release", reflect.TypeOf((*MockTransport)(nil).Release))
+}
+
+// Reset mocks base method.
+func (m *MockTransport) Reset() {
+	m.ctrl.T.Helper()
+	m.ctrl.Call(m, "Reset")
+}
+
+// Reset indicates an expected call of Reset.
+func (mr *MockTransportMockRecorder) Reset() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Reset", reflect.TypeOf((*MockTransport)(nil).Reset))
 }
 
 // SendNext mocks base method.

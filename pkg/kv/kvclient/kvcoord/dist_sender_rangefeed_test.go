@@ -157,8 +157,8 @@ func (c *countConnectionsTransport) SkipReplica() {
 	c.wrapped.SkipReplica()
 }
 
-func (c *countConnectionsTransport) MoveToFront(descriptor roachpb.ReplicaDescriptor) bool {
-	return c.wrapped.MoveToFront(descriptor)
+func (c *countConnectionsTransport) Reset() {
+	c.wrapped.Reset()
 }
 
 func (c *countConnectionsTransport) Release() {
