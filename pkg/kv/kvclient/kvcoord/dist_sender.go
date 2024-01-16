@@ -1073,15 +1073,14 @@ func (ds *DistSender) Send(
 			withParallelCommit = et.IsParallelCommit()
 		}
 
-		var rpl *kvpb.BatchResponse
-		var pErr *kvpb.Error
+		var resp response
 		if withParallelCommit {
-			rpl, pErr = ds.divideAndSendParallelCommit(ctx, ba, rs, isReverse, 0 /* batchIdx */)
+			resp = ds.divideAndSendParallelCommit(ctx, ba, rs, isReverse, 0 /* batchIdx */)
 		} else {
-			rpl, pErr = ds.divideAndSendBatchToRanges(ctx, ba, rs, isReverse, withCommit, 0 /* batchIdx */)
+			resp = ds.divideAndSendBatchToRanges(ctx, ba, rs, isReverse, withCommit, 0 /* batchIdx */)
 		}
 
-		if pErr == errNo1PCTxn {
+		if resp.error() == errNo1PCTxn {
 			// If we tried to send a single round-trip EndTxn but it looks like
 			// it's going to hit multiple ranges, split it here and try again.
 			if len(parts) != 1 {
@@ -1095,7 +1094,7 @@ func (ds *DistSender) Send(
 			// EndTxn in the last part.
 			continue
 		}
-		if pErr != nil {
+		if pErr := resp.error(); pErr != nil {
 			if pErr.Index != nil && pErr.Index.Index != -1 {
 				pErr.Index.Index += int32(errIdxOffset)
 			}
@@ -1106,10 +1105,10 @@ func (ds *DistSender) Send(
 
 		// Propagate transaction from last reply to next request. The final
 		// update is taken and put into the response's main header.
-		rplChunks = append(rplChunks, rpl)
+		rplChunks = append(rplChunks, resp.reply)
 		parts = parts[1:]
 		if len(parts) > 0 {
-			ba.UpdateTxn(rpl.Txn)
+			ba.UpdateTxn(resp.reply.Txn)
 		}
 	}
 
@@ -1148,6 +1147,10 @@ type response struct {
 	pErr      *kvpb.Error
 }
 
+func (r response) error() *kvpb.Error {
+	return r.pErr
+}
+
 // divideAndSendParallelCommit divides a parallel-committing batch into
 // sub-batches that can be evaluated in parallel but should not be evaluated
 // on a Store together.
@@ -1173,7 +1176,7 @@ type response struct {
 // with divideAndSendBatchToRanges.
 func (ds *DistSender) divideAndSendParallelCommit(
 	ctx context.Context, ba *kvpb.BatchRequest, rs roachpb.RSpan, isReverse bool, batchIdx int,
-) (br *kvpb.BatchResponse, pErr *kvpb.Error) {
+) response {
 	// Search backwards, looking for the first pre-commit QueryIntent.
 	swapIdx := -1
 	lastIdx := len(ba.Requests) - 1
@@ -1212,7 +1215,7 @@ func (ds *DistSender) divideAndSendParallelCommit(
 	qiBa.Requests = swappedReqs[swapIdx+1:]
 	qiRS, err := keys.Range(qiBa.Requests)
 	if err != nil {
-		return br, kvpb.NewError(err)
+		return response{pErr: kvpb.NewError(err)}
 	}
 	qiIsReverse := false // QueryIntentRequests do not carry the isReverse flag
 	qiBatchIdx := batchIdx + 1
@@ -1243,10 +1246,12 @@ func (ds *DistSender) divideAndSendParallelCommit(
 
 		// Send the batch with withCommit=true since it will be inflight
 		// concurrently with the EndTxn batch below.
-		reply, pErr := ds.divideAndSendBatchToRanges(ctx, qiBa, qiRS, qiIsReverse, true /* withCommit */, qiBatchIdx)
-		qiResponseCh <- response{reply: reply, positions: positions, pErr: pErr}
+		qiResp := ds.divideAndSendBatchToRanges(ctx, qiBa, qiRS, qiIsReverse, true /* withCommit */, qiBatchIdx)
+		qiResp.positions = positions
+		qiResponseCh <- qiResp
+
 	}); err != nil {
-		return nil, kvpb.NewError(err)
+		return response{pErr: kvpb.NewError(err)}
 	}
 
 	// Adjust the original batch request to ignore the pre-commit
@@ -1256,19 +1261,19 @@ func (ds *DistSender) divideAndSendParallelCommit(
 	ba.Requests = swappedReqs[:swapIdx+1]
 	rs, err = keys.Range(ba.Requests)
 	if err != nil {
-		return nil, kvpb.NewError(err)
+		return response{pErr: kvpb.NewError(err)}
 	}
 	// Note that we don't need to recompute isReverse for the updated batch
 	// since we only separated out QueryIntentRequests which don't carry the
 	// isReverse flag.
-	br, pErr = ds.divideAndSendBatchToRanges(ctx, ba, rs, isReverse, true /* withCommit */, batchIdx)
+	resp := ds.divideAndSendBatchToRanges(ctx, ba, rs, isReverse, true /* withCommit */, batchIdx)
 
 	// Wait for the QueryIntent-only batch to complete and stitch
 	// the responses together.
 	qiReply := <-qiResponseCh
 
 	// Handle error conditions.
-	if pErr != nil {
+	if pErr := resp.error(); pErr != nil {
 		// The batch with the EndTxn returned an error. Ignore errors from the
 		// pre-commit QueryIntent requests because that request is read-only and
 		// will produce the same errors next time, if applicable.
@@ -1276,7 +1281,7 @@ func (ds *DistSender) divideAndSendParallelCommit(
 			pErr.UpdateTxn(qiReply.reply.Txn)
 		}
 		maybeSwapErrorIndex(pErr, swapIdx, lastIdx)
-		return nil, pErr
+		return response{pErr: pErr}
 	}
 	if qiPErr := qiReply.pErr; qiPErr != nil {
 		// The batch with the pre-commit QueryIntent requests returned an error.
@@ -1284,15 +1289,15 @@ func (ds *DistSender) divideAndSendParallelCommit(
 		if _, ok := qiPErr.GetDetail().(*kvpb.IntentMissingError); ok {
 			// If the error is an IntentMissingError, detect whether this is due
 			// to intent resolution and can be safely ignored.
-			ignoreMissing, err = ds.detectIntentMissingDueToIntentResolution(ctx, br.Txn)
+			ignoreMissing, err = ds.detectIntentMissingDueToIntentResolution(ctx, resp.reply.Txn)
 			if err != nil {
-				return nil, kvpb.NewErrorWithTxn(err, br.Txn)
+				return response{pErr: kvpb.NewErrorWithTxn(err, resp.reply.Txn)}
 			}
 		}
 		if !ignoreMissing {
-			qiPErr.UpdateTxn(br.Txn)
+			qiPErr.UpdateTxn(resp.reply.Txn)
 			maybeSwapErrorIndex(qiPErr, swapIdx, lastIdx)
-			return nil, qiPErr
+			return response{pErr: qiPErr}
 		}
 		// Populate the pre-commit QueryIntent batch response. If we made it
 		// here then we know we can ignore intent missing errors.
@@ -1305,13 +1310,13 @@ func (ds *DistSender) divideAndSendParallelCommit(
 
 	// Both halves of the split batch succeeded. Piece them back together.
 	resps := make([]kvpb.ResponseUnion, len(swappedReqs))
-	copy(resps, br.Responses)
+	copy(resps, resp.reply.Responses)
 	resps[swapIdx], resps[lastIdx] = resps[lastIdx], resps[swapIdx]
-	br.Responses = resps
-	if err := br.Combine(ctx, qiReply.reply, qiReply.positions, ba); err != nil {
-		return nil, kvpb.NewError(err)
+	resp.reply.Responses = resps
+	if err := resp.reply.Combine(ctx, qiReply.reply, qiReply.positions, ba); err != nil {
+		return response{pErr: kvpb.NewError(err)}
 	}
-	return br, nil
+	return response{reply: resp.reply}
 }
 
 // detectIntentMissingDueToIntentResolution attempts to detect whether a missing
@@ -1439,7 +1444,7 @@ func (ds *DistSender) divideAndSendBatchToRanges(
 	isReverse bool,
 	withCommit bool,
 	batchIdx int,
-) (br *kvpb.BatchResponse, pErr *kvpb.Error) {
+) response {
 	// Clone the BatchRequest's transaction so that future mutations to the
 	// proto don't affect the proto in this batch.
 	if ba.Txn != nil {
@@ -1458,16 +1463,15 @@ func (ds *DistSender) divideAndSendBatchToRanges(
 	ri := MakeRangeIterator(ds)
 	ri.Seek(ctx, seekKey, scanDir)
 	if !ri.Valid() {
-		return nil, kvpb.NewError(ri.Error())
+		return response{pErr: kvpb.NewError(ri.Error())}
 	}
 	// Take the fast path if this batch fits within a single range.
 	if !ri.NeedAnother(rs) {
-		resp := ds.sendPartialBatch(
+		return ds.sendPartialBatch(
 			ctx, ba, rs, isReverse, withCommit, batchIdx, ri.Token(),
 		)
 		// resp.positions remains nil since the original batch is fully
 		// contained within a single range.
-		return resp.reply, resp.pErr
 	}
 
 	// The batch spans ranges (according to our cached range descriptors).
@@ -1484,7 +1488,7 @@ func (ds *DistSender) divideAndSendBatchToRanges(
 			nil, /* lease */
 			ri.ClosedTimestampPolicy(),
 		)
-		return nil, kvpb.NewError(mismatch)
+		return response{pErr: kvpb.NewError(mismatch)}
 	}
 	// If there's no transaction and ba spans ranges, possibly re-run as part of
 	// a transaction for consistency. The case where we don't need to re-run is
@@ -1499,11 +1503,11 @@ func (ds *DistSender) divideAndSendBatchToRanges(
 			// Revisit if this ever becomes something we actually want to do, for now such
 			// batches will fail (re-wrapped in txn and then fail because some requests
 			// don't support txns).
-			return nil, kvpb.NewError(&kvpb.OpRequiresTxnError{})
+			return response{pErr: kvpb.NewError(&kvpb.OpRequiresTxnError{})}
 		}
 		if fn := ds.onRangeSpanningNonTxnalBatch; fn != nil {
 			if pErr := fn(ba); pErr != nil {
-				return nil, pErr
+				return response{pErr: pErr}
 			}
 		}
 	}
@@ -1517,7 +1521,7 @@ func (ds *DistSender) divideAndSendBatchToRanges(
 	if withCommit {
 		etArg, ok := ba.GetArg(kvpb.EndTxn)
 		if ok && !etArg.(*kvpb.EndTxnRequest).IsParallelCommit() {
-			return nil, errNo1PCTxn
+			return response{pErr: errNo1PCTxn}
 		}
 	}
 	// Make sure the CanForwardReadTimestamp flag is set to false, if necessary.
@@ -1525,7 +1529,7 @@ func (ds *DistSender) divideAndSendBatchToRanges(
 
 	// Make an empty slice of responses which will be populated with responses
 	// as they come in via Combine().
-	br = &kvpb.BatchResponse{
+	br := &kvpb.BatchResponse{
 		Responses: make([]kvpb.ResponseUnion, len(ba.Requests)),
 	}
 	// This function builds a channel of responses for each range
@@ -1547,44 +1551,45 @@ func (ds *DistSender) divideAndSendBatchToRanges(
 		// It's important that we wait for all of them even if an error is caught
 		// because the client.Sender() contract mandates that we don't "hold on" to
 		// any part of a request after DistSender.Send() returns.
+		var combinedErr *kvpb.Error
 		for _, responseCh := range responseChs {
 			resp := <-responseCh
-			if resp.pErr != nil {
+			if respErr := resp.error(); respErr != nil {
 				// Re-map the error index within this partial batch back to its
 				// position in the encompassing batch.
-				if resp.pErr.Index != nil && resp.pErr.Index.Index != -1 && resp.positions != nil {
-					resp.pErr.Index.Index = int32(resp.positions[resp.pErr.Index.Index])
+				if respErr.Index != nil && respErr.Index.Index != -1 && resp.positions != nil {
+					respErr.Index.Index = int32(resp.positions[respErr.Index.Index])
 				}
-				if pErr == nil {
-					pErr = resp.pErr
+				if combinedErr == nil {
+					combinedErr = respErr
 					// Update the error's transaction with any new information from
 					// the batch response. This may contain interesting updates if
 					// the batch was parallelized and part of it succeeded.
-					pErr.UpdateTxn(br.Txn)
+					combinedErr.UpdateTxn(br.Txn)
 				} else {
 					// The batch was split and saw (at least) two different errors.
 					// Merge their transaction state and determine which to return
 					// based on their priorities.
-					pErr = mergeErrors(pErr, resp.pErr)
+					combinedErr = mergeErrors(combinedErr, respErr)
 				}
 				continue
 			}
 
 			// Combine the new response with the existing one (including updating
 			// the headers) if we haven't yet seen an error.
-			if pErr == nil {
+			if combinedErr == nil {
 				if err := br.Combine(ctx, resp.reply, resp.positions, ba); err != nil {
-					pErr = kvpb.NewError(err)
+					combinedErr = kvpb.NewError(err)
 				}
 			} else {
 				// Update the error's transaction with any new information from
 				// the batch response. This may contain interesting updates if
 				// the batch was parallelized and part of it succeeded.
-				pErr.UpdateTxn(resp.reply.Txn)
+				combinedErr.UpdateTxn(resp.reply.Txn)
 			}
 		}
 
-		if pErr == nil && couldHaveSkippedResponses {
+		if combinedErr == nil && couldHaveSkippedResponses {
 			fillSkippedResponses(ba, br, seekKey, resumeReason, isReverse)
 		}
 	}()
@@ -1614,7 +1619,7 @@ func (ds *DistSender) divideAndSendBatchToRanges(
 		scanDir, ba.Requests, mustPreserveOrder, canReorderRequestsSlice,
 	)
 	if err != nil {
-		return nil, kvpb.NewError(err)
+		return response{pErr: kvpb.NewError(err)}
 	}
 	// Iterate over the ranges that the batch touches. The iteration is done in
 	// key order - the order of requests in the batch is not relevant for the
@@ -1638,8 +1643,7 @@ func (ds *DistSender) divideAndSendBatchToRanges(
 		// Truncate the request to range descriptor.
 		curRangeRS, err := rs.Intersect(ri.Token().Desc().RSpan())
 		if err != nil {
-			responseCh <- response{pErr: kvpb.NewError(err)}
-			return
+			return response{pErr: kvpb.NewError(err)}
 		}
 		curRangeBatch := ba.ShallowCopy()
 		var positions []int
@@ -1649,8 +1653,7 @@ func (ds *DistSender) divideAndSendBatchToRanges(
 			err = errors.Newf("truncation resulted in empty batch on %s: %s", rs, ba)
 		}
 		if err != nil {
-			responseCh <- response{pErr: kvpb.NewError(err)}
-			return
+			return response{pErr: kvpb.NewError(err)}
 		}
 		nextRS := rs
 		if scanDir == Ascending {
@@ -1673,7 +1676,7 @@ func (ds *DistSender) divideAndSendBatchToRanges(
 			resp.positions = positions
 			responseCh <- resp
 			if resp.pErr != nil {
-				return
+				return resp
 			}
 			// Update the transaction from the response. Note that this wouldn't happen
 			// on the asynchronous path, but if we have newer information it's good to
@@ -1694,7 +1697,7 @@ func (ds *DistSender) divideAndSendBatchToRanges(
 					if h.ResumeSpan != nil {
 						couldHaveSkippedResponses = true
 						resumeReason = h.ResumeReason
-						return
+						return response{reply: br}
 					}
 				}
 				// Update MaxSpanRequestKeys and TargetBytes, if applicable, since ba
@@ -1705,7 +1708,7 @@ func (ds *DistSender) divideAndSendBatchToRanges(
 					if ba.MaxSpanRequestKeys <= 0 {
 						couldHaveSkippedResponses = true
 						resumeReason = kvpb.RESUME_KEY_LIMIT
-						return
+						return response{reply: br}
 					}
 				}
 				if ba.TargetBytes > 0 {
@@ -1713,7 +1716,7 @@ func (ds *DistSender) divideAndSendBatchToRanges(
 					if ba.TargetBytes <= 0 {
 						couldHaveSkippedResponses = true
 						resumeReason = kvpb.RESUME_BYTE_LIMIT
-						return
+						return response{reply: br}
 					}
 				}
 				// If we hit a range boundary, return a partial result if requested. We
@@ -1721,7 +1724,7 @@ func (ds *DistSender) divideAndSendBatchToRanges(
 				if ba.Header.ReturnOnRangeBoundary && replyKeys > 0 && !lastRange {
 					couldHaveSkippedResponses = true
 					resumeReason = kvpb.RESUME_RANGE_BOUNDARY
-					return
+					return response{reply: br}
 				}
 			}
 		}
@@ -1733,7 +1736,7 @@ func (ds *DistSender) divideAndSendBatchToRanges(
 		// but the span is a sub-span of the original, causing Truncate() to
 		// potentially return the next seek key which inverts the span.
 		if lastRange || !nextRS.Key.Less(nextRS.EndKey) {
-			return
+			return response{reply: br}
 		}
 		batchIdx++
 		rs = nextRS
@@ -1743,7 +1746,7 @@ func (ds *DistSender) divideAndSendBatchToRanges(
 	responseCh := make(chan response, 1)
 	responseCh <- response{pErr: kvpb.NewError(ri.Error())}
 	responseChs = append(responseChs, responseCh)
-	return
+	return response{reply: br}
 }
 
 // sendPartialBatchAsync sends the partial batch asynchronously if
@@ -1888,8 +1891,7 @@ func (ds *DistSender) sendPartialBatch(
 			}
 			if !intersection.Equal(rs) {
 				log.Eventf(ctx, "range shrunk; sub-dividing the request")
-				reply, pErr = ds.divideAndSendBatchToRanges(ctx, ba, rs, isReverse, withCommit, batchIdx)
-				return response{reply: reply, pErr: pErr}
+				return ds.divideAndSendBatchToRanges(ctx, ba, rs, isReverse, withCommit, batchIdx)
 			}
 		}
 
@@ -1989,8 +1991,7 @@ func (ds *DistSender) sendPartialBatch(
 			// batch here would give a potentially larger response slice
 			// with unknown mapping to our truncated reply).
 			log.VEventf(ctx, 1, "likely split; will resend. Got new descriptors: %s", tErr.Ranges)
-			reply, pErr = ds.divideAndSendBatchToRanges(ctx, ba, rs, isReverse, withCommit, batchIdx)
-			return response{reply: reply, pErr: pErr}
+			return ds.divideAndSendBatchToRanges(ctx, ba, rs, isReverse, withCommit, batchIdx)
 		}
 		break
 	}
