@@ -17,6 +17,7 @@ import (
 	"reflect"
 	"sort"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -27,6 +28,9 @@ import (
 	"github.com/cockroachdb/cockroach/pkg/keys"
 	"github.com/cockroachdb/cockroach/pkg/kv"
 	"github.com/cockroachdb/cockroach/pkg/kv/kvclient/kvcoord"
+	"github.com/cockroachdb/cockroach/pkg/kv/kvclient/rangefeed"
+	"github.com/cockroachdb/cockroach/pkg/kv/kvclient/rangefeed/rangefeedbuffer"
+	"github.com/cockroachdb/cockroach/pkg/kv/kvclient/rangefeed/rangefeedcache"
 	"github.com/cockroachdb/cockroach/pkg/kv/kvpb"
 	"github.com/cockroachdb/cockroach/pkg/kv/kvserver"
 	"github.com/cockroachdb/cockroach/pkg/kv/kvserver/closedts"
@@ -4678,6 +4682,8 @@ func TestPartialPartition(t *testing.T) {
 	defer log.Scope(t).Close(t)
 	skip.UnderStressRace(t, "times out with 5 nodes")
 	ctx := context.Background()
+	// TODO(baptist): Enable once #119490 is fixed.
+	rangeFeedsEnabled := false
 
 	testCases := []struct {
 		useProxy   bool
@@ -4774,9 +4780,56 @@ func TestPartialPartition(t *testing.T) {
 					return nil
 				})
 
+				scratchSpan := roachpb.Span{Key: scratchKey, EndKey: scratchKey.Next()}
+				sawWrite := make(chan int)
+				if rangeFeedsEnabled {
+					numServers := test.numServers
+					// Start a rangefeed on each node, validate we see the updates.
+					// Wait until the initial rangefeed scan is complete before the partition.
+					var wg sync.WaitGroup
+					wg.Add(numServers)
+
+					for i := 0; i < numServers; i++ {
+						i := i
+						initialScanComplete := false
+						ts := tc.ApplicationLayer(i)
+						seenWrite := false
+						w := rangefeedcache.NewWatcher(
+							"test",
+							ts.Clock(),
+							ts.RangeFeedFactory().(*rangefeed.Factory),
+							1<<20, /* bufferSize */
+							[]roachpb.Span{scratchSpan},
+							false, /* withPrevValue */
+							false, /* withRowTSInInitialScan */
+							func(ctx context.Context, value *kvpb.RangeFeedValue) (*kvpb.RangeFeedValue, bool) { return value, true },
+							func(ctx context.Context, update rangefeedcache.Update[*kvpb.RangeFeedValue]) {
+								if update.Type == rangefeedcache.CompleteUpdate && !initialScanComplete {
+									wg.Done()
+									initialScanComplete = true
+								}
+
+								for _, u := range update.Events {
+									kv := rangefeedbuffer.RangeFeedValueEventToKV(u)
+									if !seenWrite && kv.Key.Equal(scratchKey) {
+										log.Infof(ctx, "n%d: rangefeed update", i)
+										seenWrite = true
+										sawWrite <- i
+									}
+								}
+							},
+							nil)
+
+						require.NoError(t, rangefeedcache.Start(context.Background(), ts.AppStopper(), w, nil /* onError */))
+					}
+					// Wait for all the initial scans to complete before starting the partition.
+					wg.Wait()
+				}
+
 				p.EnablePartition(true)
 
 				txn := tc.ApplicationLayer(0).DB().NewTxn(ctx, "test")
+
 				// DistSender will retry forever. For the failure cases we want
 				// to fail faster.
 				cancelCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
@@ -4785,6 +4838,11 @@ func TestPartialPartition(t *testing.T) {
 				if test.useProxy {
 					require.NoError(t, err)
 					require.NoError(t, txn.Commit(cancelCtx))
+					if rangeFeedsEnabled {
+						for i := 0; i < test.numServers; i++ {
+							<-sawWrite
+						}
+					}
 				} else {
 					require.Error(t, err)
 					require.NoError(t, txn.Rollback(cancelCtx))
@@ -4792,10 +4850,10 @@ func TestPartialPartition(t *testing.T) {
 
 				// Stop all the clients first to avoid getting stuck on failing tests.
 				for i := 0; i < test.numServers; i++ {
-					tc.ApplicationLayer(i).AppStopper().Stop(ctx)
+					tc.ApplicationLayer(i).AppStopper().Stop(cancelCtx)
 				}
 
-				tc.Stopper().Stop(ctx)
+				tc.Stopper().Stop(cancelCtx)
 			})
 	}
 }
