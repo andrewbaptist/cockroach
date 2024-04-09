@@ -3942,6 +3942,10 @@ func (s *Store) getNodeRangeCount() int64 {
 	return s.cfg.RangeCount.Load()
 }
 
+func (s *Store) OnRangeDescUpdated(*roachpb.RangeDescriptor) {
+
+}
+
 // Implementation of the storeForTruncator interface.
 type storeForTruncatorImpl Store
 
