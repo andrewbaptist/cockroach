@@ -19,6 +19,7 @@ package raft
 
 import (
 	"bytes"
+	"context"
 	"crypto/rand"
 	"errors"
 	"fmt"
@@ -32,6 +33,7 @@ import (
 	"github.com/cockroachdb/cockroach/pkg/raft/quorum"
 	pb "github.com/cockroachdb/cockroach/pkg/raft/raftpb"
 	"github.com/cockroachdb/cockroach/pkg/raft/tracker"
+	"github.com/cockroachdb/cockroach/pkg/util/log"
 )
 
 const (
@@ -658,6 +660,7 @@ func (r *raft) sendHeartbeat(to uint64) {
 // bcastAppend sends RPC, with entries to all peers that are not up-to-date
 // according to the progress recorded in r.trk.
 func (r *raft) bcastAppend() {
+	log.Eventf(context.TODO(), "bcastAppend")
 	r.trk.Visit(func(id uint64, _ *tracker.Progress) {
 		if id == r.id {
 			return
@@ -749,6 +752,7 @@ func (r *raft) reset(term uint64) {
 }
 
 func (r *raft) appendEntry(es ...pb.Entry) (accepted bool) {
+	log.Eventf(context.TODO(), "x appending %d entries to log", len(es))
 	li := r.raftLog.lastIndex()
 	for i := range es {
 		es[i].Term = r.Term
@@ -1193,6 +1197,8 @@ func (r *raft) Step(m pb.Message) error {
 type stepFunc func(r *raft, m pb.Message) error
 
 func stepLeader(r *raft, m pb.Message) error {
+	log.Eventf(context.TODO(), "step leader %x [term: %d] received a %s message with higher term from %x [term: %d]", r.id, r.Term, m.Type, m.From, m.Term)
+
 	// These message types do not require any progress for m.From.
 	switch m.Type {
 	case pb.MsgBeat:
@@ -1603,6 +1609,7 @@ func stepCandidate(r *raft, m pb.Message) error {
 }
 
 func stepFollower(r *raft, m pb.Message) error {
+	log.Eventf(context.TODO(), "step follower %x [term: %d] received a %s message with higher term from %x [term: %d]", r.id, r.Term, m.Type, m.From, m.Term)
 	switch m.Type {
 	case pb.MsgProp:
 		if r.lead == None {

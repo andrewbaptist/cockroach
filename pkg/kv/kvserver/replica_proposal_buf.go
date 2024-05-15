@@ -431,6 +431,7 @@ func (b *propBuf) flushLocked(ctx context.Context) error {
 func (b *propBuf) FlushLockedWithRaftGroup(
 	ctx context.Context, raftGroup proposerRaft,
 ) (int, error) {
+	log.Eventf(ctx, "flushing proposal buffer")
 	// We hold the write lock while reading from and flushing the proposal
 	// buffer. This ensures that we synchronize with all producers and other
 	// consumers.

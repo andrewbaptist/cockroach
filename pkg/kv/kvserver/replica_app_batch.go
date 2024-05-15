@@ -572,9 +572,7 @@ func (b *replicaAppBatch) stageTrivialReplicatedEvalResult(
 // engine. This encompasses the persistent state transition portion of entry
 // application.
 func (b *replicaAppBatch) ApplyToStateMachine(ctx context.Context) error {
-	if log.V(4) {
-		log.Infof(ctx, "flushing batch %v of %d entries", b.state, b.ab.numEntriesProcessed)
-	}
+	log.Eventf(ctx, "flushing batch %v of %d entries", b.state, b.ab.numEntriesProcessed)
 
 	// Add the replica applied state key to the write batch if this change
 	// doesn't remove us.
@@ -802,6 +800,7 @@ type ephemeralReplicaAppBatch struct {
 func (mb *ephemeralReplicaAppBatch) Stage(
 	ctx context.Context, cmdI apply.Command,
 ) (apply.CheckedCommand, error) {
+	log.Eventf(ctx, "staging command, %v", cmdI)
 	cmd := cmdI.(*replicatedCmd)
 
 	fr := kvserverbase.CheckForcedErr(

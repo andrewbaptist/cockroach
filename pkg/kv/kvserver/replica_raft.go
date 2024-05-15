@@ -785,6 +785,7 @@ func (r *Replica) handleRaftReadyRaftMuLocked(
 		return handleRaftReadyStats{}, errors.AssertionFailedf(
 			"handleRaftReadyRaftMuLocked cannot be called with a cancellable context")
 	}
+	log.VEventf(ctx, 2, "processing raft ready")
 
 	// NB: we need to reference the named return parameter here. If `stats` were
 	// just a local, we'd be modifying the local but not the return value in the
@@ -838,6 +839,7 @@ func (r *Replica) handleRaftReadyRaftMuLocked(
 			asyncRd := makeAsyncReady(syncRd)
 			softState = asyncRd.SoftState
 			outboundMsgs, msgStorageAppend, msgStorageApply = splitLocalStorageMsgs(asyncRd.Messages)
+			log.VEventf(ctx, 2, "split messages are %v, %v, %d", msgStorageAppend, msgStorageApply, len(outboundMsgs))
 		}
 		// We unquiesce if we have a Ready (= there's work to do). We also have
 		// to unquiesce if we just flushed some proposals but there isn't a
@@ -894,6 +896,7 @@ func (r *Replica) handleRaftReadyRaftMuLocked(
 		leaderID = roachpb.ReplicaID(softState.Lead)
 	}
 
+	log.VEventf(ctx, 2, "sending %d outbound messages", len(outboundMsgs))
 	r.traceMessageSends(outboundMsgs, "sending messages")
 	r.sendRaftMessages(ctx, outboundMsgs, pausedFollowers, true /* willDeliverLocal */)
 
@@ -928,6 +931,7 @@ func (r *Replica) handleRaftReadyRaftMuLocked(
 	dec := r.getDecoder()
 	var appTask apply.Task
 	if hasMsg(msgStorageApply) {
+		log.VEventf(ctx, 2, "applying %d committed entries", len(msgStorageApply.Entries))
 		appTask = apply.MakeTask(sm, dec)
 		appTask.SetMaxBatchSize(r.store.TestingKnobs().MaxApplicationBatchSize)
 		defer appTask.Close()
@@ -942,6 +946,7 @@ func (r *Replica) handleRaftReadyRaftMuLocked(
 	}
 
 	if hasMsg(msgStorageAppend) {
+		log.VEventf(ctx, 2, "appending %d entries to raft log", len(msgStorageAppend.Entries))
 		if msgStorageAppend.Snapshot != nil {
 			if inSnap.Desc == nil {
 				// If we didn't expect Raft to have a snapshot but it has one
@@ -1063,6 +1068,7 @@ func (r *Replica) handleRaftReadyRaftMuLocked(
 				}
 			}
 
+			log.VEventf(ctx, 2, "storing %d log entries", len(m.Entries))
 			if state, err = s.StoreEntries(ctx, state, m, cb, &stats.append); err != nil {
 				return stats, errors.Wrap(err, "while storing log entries")
 			}
@@ -1095,6 +1101,7 @@ func (r *Replica) handleRaftReadyRaftMuLocked(
 	stats.tApplicationBegin = timeutil.Now()
 	if hasMsg(msgStorageApply) {
 		r.traceEntries(msgStorageApply.Entries, "committed, before applying any entries")
+		log.VEventf(ctx, 2, "committed, applying %d log entries", len(msgStorageApply.Entries))
 
 		err := appTask.ApplyCommittedEntries(ctx)
 		stats.apply = sm.moveStats()
@@ -1778,6 +1785,8 @@ func (r *Replica) deliverLocalRaftMsgsRaftMuLockedReplicaMuLocked(
 	}
 
 	for i, m := range localMsgs {
+		log.VEventf(ctx, 2, "delivering local raft message [%s]",
+			raftDescribeMessage(m, raftEntryFormatter))
 		if err := raftGroup.Step(m); err != nil {
 			log.Fatalf(ctx, "unexpected error stepping local raft message [%s]: %v",
 				raftDescribeMessage(m, raftEntryFormatter), err)
@@ -1796,6 +1805,7 @@ func (r *Replica) deliverLocalRaftMsgsRaftMuLockedReplicaMuLocked(
 // The Replica mu must not be held.
 func (r *Replica) sendRaftMessage(ctx context.Context, msg raftpb.Message) {
 	lastToReplica, lastFromReplica := r.getLastReplicaDescriptors()
+	log.VEventf(ctx, 2, "sending raft message [%s]", raftDescribeMessage(msg, raftEntryFormatter))
 
 	r.mu.RLock()
 	fromReplica, fromErr := r.getReplicaDescriptorByIDRLocked(roachpb.ReplicaID(msg.From), lastToReplica)

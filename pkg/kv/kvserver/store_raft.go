@@ -315,6 +315,7 @@ func (s *Store) HandleRaftUncoalescedRequest(
 	// not sent over the network if the environment variable is set) so do not
 	// count them.
 	s.metrics.RaftRcvdMessages[req.Message.Type].Inc(1)
+	log.VEventf(ctx, 2, "received %s from %s to %s", req.Message.Type, req.FromReplica, req.ToReplica)
 
 	// NB: add a buffer for extra messages, to allow heartbeats getting through
 	// even if MsgApp quota is maxed out by the sender.
