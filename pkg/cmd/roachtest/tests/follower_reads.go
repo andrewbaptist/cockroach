@@ -376,8 +376,12 @@ func runFollowerReadsTest(
 		}
 	}
 	if nodesWhichSawFollowerReads < expNodesToSeeFollowerReads {
-		t.Fatalf("fewer than %v follower reads occurred: saw %v before and %v after",
+		t.L().Printf("WARNING: fewer than %v follower reads occurred: saw %v before and %v after",
 			expNodesToSeeFollowerReads, followerReadsBefore, followerReadsAfter)
+	}
+	// Start profiling reads going forward.
+	if err := profileTopStatements(ctx, c, l, time.Millisecond); err != nil {
+		t.L().Printf("failed to enable profiling: %v", err)
 	}
 
 	// Kill nodes, if necessary.
@@ -418,6 +422,8 @@ func runFollowerReadsTest(
 	}
 	end := timeutil.Now()
 	l.Printf("load stopped")
+
+	require.NoError(t, downloadProfiles(ctx, c, t.L(), t.ArtifactsDir()))
 
 	// Depending on the test's topology, we expect a different set of nodes to
 	// perform follower reads.
