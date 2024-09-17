@@ -208,6 +208,7 @@ func registerLatencyTests(r registry.Registry) {
 	addMetamorphic(r, addNode{}, 2.0)
 	addMetamorphic(r, decommission{}, 2.0)
 	addMetamorphic(r, backfill{}, 20.0)
+	addMetamorphic(r, changeConfig{}, 20.0)
 
 	// NB: If these tests fail, it likely signals a regression. Investigate the
 	// history of the test on roachperf to see what changed.
@@ -216,6 +217,7 @@ func registerLatencyTests(r registry.Registry) {
 	addFull(r, addNode{}, 2.0)
 	addFull(r, decommission{}, 2.0)
 	addFull(r, backfill{}, 20.0)
+	addFull(r, changeConfig{}, 20.0)
 
 	// NB: These tests will never fail and are not enabled, but they are useful
 	// for development.
@@ -224,6 +226,7 @@ func registerLatencyTests(r registry.Registry) {
 	addDev(r, addNode{}, math.Inf(1))
 	addDev(r, decommission{}, math.Inf(1))
 	addDev(r, backfill{}, math.Inf(1))
+	addDev(r, changeConfig{}, math.Inf(1))
 }
 
 func (v variations) makeClusterSpec() spec.ClusterSpec {
@@ -306,7 +309,7 @@ func (b backfill) startTargetNode(ctx context.Context, l *logger.Logger, v varia
 	v.startNoBackup(ctx, l, v.targetNodes())
 
 	// Create enough splits to start with one replica on each store.
-	numSplits := v.vcpu * v.disks
+	numSplits := v.numNodes * v.disks
 	// TODO(baptist): Handle multiple target nodes.
 	target := v.targetNodes()[0]
 	initCmd := fmt.Sprintf("./cockroach workload init kv --db backfill --splits %d {pgurl:1}", numSplits)
@@ -350,6 +353,56 @@ func (b backfill) startPerturbation(
 
 // endPerturbation does nothing as the backfill database is already created.
 func (b backfill) endPerturbation(
+	ctx context.Context, l *logger.Logger, v variations,
+) time.Duration {
+	waitDuration(ctx, v.validationDuration)
+	return v.validationDuration
+}
+
+// zoneConfig will change the zone config of the target node to have a higher
+// replication count for the second database. This will cause it to become overloaded.
+type changeConfig struct{}
+
+var _ perturbation = changeConfig{}
+
+// startTargetNode starts the target node and fills the second table.
+func (z changeConfig) startTargetNode(ctx context.Context, l *logger.Logger, v variations) {
+	v.startNoBackup(ctx, l, v.targetNodes())
+
+	// Create enough splits to start with one replica on each store.
+	numSplits := v.numNodes * v.disks
+	initCmd := fmt.Sprintf("./cockroach workload init kv --db second --splits %d {pgurl:1}", numSplits)
+	v.Run(ctx, option.WithNodes(v.Node(1)), initCmd)
+
+	// Create and fill the second kv database before the test starts. We don't
+	// want the fill to impact the test throughput. We use a larger block size
+	// to create a lot of SSTables and ranges in a short amount of time.
+	runCmd := fmt.Sprintf(
+		"./cockroach workload run kv --db second --duration=%s --max-block-bytes=%d --min-block-bytes=%d --concurrency=100 {pgurl%s}",
+		v.perturbationDuration, 10_000, 10_000, v.stableNodes())
+	v.Run(ctx, option.WithNodes(v.workloadNodes()), runCmd)
+}
+
+// startPerturbation creates the index for the table.
+func (z changeConfig) startPerturbation(
+	ctx context.Context, l *logger.Logger, v variations,
+) time.Duration {
+	startTime := timeutil.Now()
+	// TODO(baptist): Handle multiple target nodes.
+	target := v.targetNodes()[0]
+	db := v.Conn(ctx, l, 1)
+	defer db.Close()
+	cmd := fmt.Sprintf("ALTER DATABASE second CONFIGURE ZONE USING constraints = '[+node%d]'", target)
+	if _, err := db.ExecContext(ctx, cmd); err != nil {
+		panic(err)
+	}
+	l.Printf("waiting for replicas to be in place")
+	v.waitForRebalanceToStop(ctx, l)
+	return timeutil.Since(startTime)
+}
+
+// endPerturbation does nothing as the second database is already created.
+func (z changeConfig) endPerturbation(
 	ctx context.Context, l *logger.Logger, v variations,
 ) time.Duration {
 	waitDuration(ctx, v.validationDuration)
